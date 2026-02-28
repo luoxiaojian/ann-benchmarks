@@ -52,6 +52,7 @@ Evaluated
 * [kgn](https://github.com/Henry-yan/kgn)
 * [vsag](https://github.com/antgroup/vsag)
 * [PGVectorScale](https://github.com/timescale/pgvectorscale/tree/main)
+* [Zvec](https://github.com/alibaba/zvec) ![https://img.shields.io/github/stars/alibaba/zvec?style=social](https://img.shields.io/github/stars/alibaba/zvec?style=social)
 
 Data sets
 =========

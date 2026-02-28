@@ -15,5 +15,7 @@ results/*
 !results/*.png
 
 venv
+venv_ann
 
 .idea
+nohup.out

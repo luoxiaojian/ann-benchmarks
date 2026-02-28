@@ -1,0 +1,25 @@
+float:
+  angular:
+  - base_args: ['@metric']
+    constructor: Zvec
+    disabled: false
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec
+    run_groups:
+      # VectorDBBench proven optimal configuration: M=50, efConstruction=500
+      base:
+        arg_groups: [{M: 50, efConstruction: 500}]
+        query_args: [[10, 20, 40, 80, 120, 200, 300, 400, 600, 800]]
+  euclidean:
+  - base_args: ['@metric']
+    constructor: Zvec
+    disabled: false
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec
+    run_groups:
+      # VectorDBBench proven optimal configuration: M=50, efConstruction=500
+      base:
+        arg_groups: [{M: 50, efConstruction: 500}]
+        query_args: [[10, 20, 40, 80, 120, 200, 300, 400, 600, 800]]

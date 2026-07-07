@@ -1,0 +1,52 @@
+# Zvec comparison sweep for HNSW and one-/two-pass Vamana builds.
+# The main graph stays in contiguous memory and the raw-vector Flat reference
+# index stays on mmap. Query-time refine groups are intentionally excluded.
+float:
+  any:
+  - base_args: ['@metric', '@dimension']
+    constructor: ZvecFastQueryDocIds
+    disabled: false
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec-fast-query-doc-ids
+    run_groups: &zvec_run_groups
+      hnsw:
+        arg_groups:
+          - index: [hnsw]
+            M: [16, 24, 32, 48, 64]
+            efConstruction: [500]
+            quantize: [int8]
+            use_contiguous_memory: [true]
+            use_flat_contiguous_memory: [false]
+        query_arg_groups:
+          - ef: &plain_efs [10, 12, 14, 16, 18, 20, 24, 32, 40, 48, 64, 80, 96, 112, 128, 160, 192, 256]
+      vamana:
+        arg_groups:
+          - index: [vamana]
+            max_degree: [24, 32, 48, 64]
+            search_list_size: [300, 500]
+            alpha: [1.5]
+            quantize: [int8]
+            use_contiguous_memory: [true]
+            use_flat_contiguous_memory: [false]
+        query_arg_groups:
+          - ef: *plain_efs
+      vamana_two_pass:
+        arg_groups:
+          - index: [vamana]
+            max_degree: [24, 32, 48, 64]
+            search_list_size: [300, 500]
+            alpha: [1.5]
+            two_pass_build: [true]
+            quantize: [int8]
+            use_contiguous_memory: [true]
+            use_flat_contiguous_memory: [false]
+        query_arg_groups:
+          - ef: *plain_efs
+  - base_args: ['@metric', '@dimension']
+    constructor: ZvecAnnBenchDocIds
+    disabled: false
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec-ann-bench-doc-ids
+    run_groups: *zvec_run_groups

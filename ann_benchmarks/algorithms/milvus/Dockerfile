@@ -4,19 +4,19 @@ FROM ann-benchmarks
 RUN apt-get update
 RUN apt-get install ca-certificates curl
 RUN install -m 0755 -d /etc/apt/keyrings
-RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+RUN curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
 RUN chmod a+r /etc/apt/keyrings/docker.asc
 
-# Add the repository to Apt sources:
+# Add the repository to Apt sources (using Aliyun mirror):
 RUN echo \
-    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://mirrors.aliyun.com/docker-ce/linux/ubuntu \
     $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
     tee /etc/apt/sources.list.d/docker.list > /dev/null
 
 RUN apt-get update 
 RUN apt-get install -y wget docker-ce-cli docker-compose-plugin
 
-RUN pip3 install pymilvus==2.4.1
+RUN pip3 install "pymilvus>=2.4.1" "marshmallow<4"
 RUN python3 -c "from pymilvus import Collection"
 
 # Install milvus standalone by docker-compose.yml

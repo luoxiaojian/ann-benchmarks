@@ -1,0 +1,68 @@
+# Zvec SIFT/L2 comparison sweep for Vamana and HNSW with uniform int8/uint8.
+# Build configs per constructor:
+#   Vamana one-pass: 5 degrees × 2 search-list sizes × 2 quantizers = 20
+#   Vamana two-pass: same 20 build configs with two_pass_build enabled
+#   HNSW:   5 M values × 1 efConstruction × 2 quantizers = 10
+# Each build has 11 ef values × 2 offsets × 2 line counts = 44 query variants.
+# Total: 50 builds × 44 variants = 2,200 runs per constructor.
+# Three constructors are enabled, producing 6,600 result points in total.
+float:
+  euclidean:
+  - base_args: ['@metric', '@dimension']
+    constructor: ZvecQuery
+    disabled: false
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec-query
+    run_groups: &zvec_run_groups
+      Vamana:
+        args:
+          index: vamana
+          max_degree: [16, 24, 32, 48, 64]
+          search_list_size: [300, 500]
+          alpha: 1.5
+          quantize: [uniform_int8, uniform_uint8]
+        query_arg_groups: &vamana_query_args
+          - ef: [10, 12, 13, 14, 16, 20, 28, 40, 64, 96, 128]
+            prefetch_offset: [48, 64]
+            prefetch_lines: [0, 2]
+      VamanaTwoPass:
+        args:
+          index: vamana
+          max_degree: [16, 24, 32, 48, 64]
+          search_list_size: [300, 500]
+          alpha: 1.5
+          two_pass_build: true
+          quantize: [uniform_int8, uniform_uint8]
+        query_arg_groups: *vamana_query_args
+      HNSW:
+        args:
+          index: hnsw
+          M: [16, 24, 32, 48, 64]
+          efConstruction: 500
+          quantize: [uniform_int8, uniform_uint8]
+        query_arg_groups:
+          - ef: [10, 12, 13, 14, 16, 20, 28, 40, 64, 96, 128]
+            prefetch_offset: [48, 64]
+            prefetch_lines: [0, 2]
+  - base_args: ['@metric', '@dimension']
+    constructor: ZvecFastQuery
+    disabled: true
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec-fast_query
+    run_groups: *zvec_run_groups
+  - base_args: ['@metric', '@dimension']
+    constructor: ZvecFastQueryDocIds
+    disabled: false
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec-fast_query_doc_ids
+    run_groups: *zvec_run_groups
+  - base_args: ['@metric', '@dimension']
+    constructor: ZvecAnnBenchDocIds
+    disabled: false
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec-ann_bench_doc_ids
+    run_groups: *zvec_run_groups

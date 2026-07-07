@@ -1,6 +1,6 @@
 FROM ann-benchmarks
 
-RUN git clone https://github.com/pgvector/pgvector /tmp/pgvector
+COPY git_deps/pgvector/pgvector /tmp/pgvector
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get -y install tzdata
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential postgresql-common
@@ -30,17 +30,24 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust and Cargo
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
+# Install Rust and Cargo (using Chinese mirror)
+ENV RUSTUP_DIST_SERVER=https://rsproxy.cn
+ENV RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://rsproxy.cn/rustup-init.sh | sh -s -- -y
 
 # Ensure the cargo bin directory is in the PATH
 ENV PATH="/root/.cargo/bin:${PATH}"
 
+# Configure cargo (use USTC sparse mirror for crates.io)
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+RUN mkdir -p /root/.cargo && \
+    printf '[source.crates-io]\nreplace-with = "ustc"\n[source.ustc]\nregistry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"\n[net]\ngit-fetch-with-cli = true\n' > /root/.cargo/config.toml
+
 # Install pgrx using cargo
-RUN cargo install --locked cargo-pgrx@0.12.9
+RUN cargo install --locked cargo-pgrx@0.16.1
 # Initialize pgrx with the PostgreSQL version
 RUN cargo pgrx init --pg16 pg_config
-RUN git clone https://github.com/timescale/pgvectorscale /tmp/pgvectorscale
+COPY git_deps/pgvectorscale/pgvectorscale /tmp/pgvectorscale
 RUN cd /tmp/pgvectorscale/pgvectorscale && \
     cargo pgrx install --release
 

@@ -1,0 +1,423 @@
+"""ann-benchmarks adapters for zvec.
+
+Three adapters are provided, one per zvec search entry point, so the
+recall/QPS trade-off of each interface can be compared directly:
+
+* ``ZvecQuery``           -> ``Collection.query`` (full SQL/Arrow pipeline).
+* ``ZvecFastQuery``       -> ``Collection.fast_query`` (bypass, string ids).
+* ``ZvecFastQueryDocIds`` -> ``Collection.fast_query_doc_ids_only`` /
+  ``fast_query_doc_ids`` (cheapest bypass, returns internal int64 doc ids).
+* ``ZvecAnnBenchDocIds``  -> ``Collection.ann_bench_search_doc_ids_only``
+  (ann-benchmarks bypass: cached indexers, params set once like qsgngt).
+
+All three share the same fit step: vectors are inserted in row order so the
+internal doc id equals the dataset row index (the contract ann-benchmarks
+relies on, since the runner indexes ``X_train[idx]``). Only the search itself
+is timed via the 3-stage ``prepare_query`` / ``run_prepared_query`` /
+``get_prepared_query_results`` protocol, matching the high-scoring leaderboard
+bindings.
+
+Both HNSW and Vamana index families are supported (selected via the
+``index`` method param), with the build/search parameters and int8
+quantization defaults taken from the tuned sift/gist workspace configs.
+"""
+
+from __future__ import annotations
+
+import gc
+import os
+import shutil
+import time
+
+import numpy as np
+import zvec
+from zvec import (
+    CollectionOption,
+    CollectionSchema,
+    Doc,
+    HnswQueryParam,
+    LogLevel,
+    OptimizeOption,
+    Query,
+    VamanaQueryParam,
+    VectorSchema,
+    create_and_open,
+    open as zvec_open,
+)
+from zvec.model.param import HnswIndexParam, VamanaIndexParam
+from zvec.typing import DataType, MetricType, QuantizeType
+
+from ..base.module import BaseANN
+
+# zvec must be initialized exactly once per process; ann-benchmarks may
+# instantiate several adapters in the same container.
+#
+# ann-benchmarks pins each Docker container to a single CPU core via
+# --cpuset-cpus.  zvec's C++ backend spawns ~150 worker threads by default
+# (based on host nproc), and all those threads get confined to the one core,
+# causing extreme context-switch overhead (~40x slowdown).  Setting
+# optimize_threads=1 keeps the build phase serial so it runs efficiently on
+# a single core.
+try:
+    zvec.init(log_level=LogLevel.WARN, optimize_threads=1)
+except RuntimeError:
+    pass
+
+VECTOR_FIELD = "vector"
+
+_METRIC = {
+    "euclidean": MetricType.L2,
+    "angular": MetricType.COSINE,
+}
+
+_QUANTIZE = {
+    "none": QuantizeType.UNDEFINED,
+    "fp16": QuantizeType.FP16,
+    "int8": QuantizeType.INT8,
+    "uniform_int8": QuantizeType.UNIFORM_INT8,
+}
+
+# Workspace defaults: HNSW pairs with UniformInt8, Vamana with Int8.
+_DEFAULT_QUANTIZE = {"hnsw": "uniform_int8", "vamana": "int8"}
+
+# Tuned prefetch per index geometry (sift/gist workspace); applied when query
+# args are a plain ef scalar (vsag-style config) rather than explicit dicts.
+_HNSW_PREFETCH = {
+    16: (32, 0),
+    24: (48, 0),
+    32: (64, 0),
+    48: (96, 2),
+}
+_VAMANA_PREFETCH = {
+    32: (32, 4),
+    48: (48, 2),
+    64: (64, 2),
+}
+
+
+class ZvecBase(BaseANN):
+    """Shared fit + 3-stage query plumbing; subclasses pick the search path."""
+
+    interface = "base"
+
+    def __init__(self, metric: str, dim: int, method_param: dict):
+        if metric not in _METRIC:
+            raise ValueError(f"[zvec] unsupported metric: {metric}")
+        self._metric_name = metric
+        self._metric = _METRIC[metric]
+        self._dim = int(dim)
+        self._method_param = method_param
+
+        self._index_type = str(method_param.get("index", "hnsw")).lower()
+        if self._index_type not in ("hnsw", "vamana"):
+            raise ValueError(f"[zvec] unsupported index: {self._index_type}")
+
+        # HNSW build params (workspace: m in {16,24,32,48,64}, efc default).
+        self._m = int(method_param.get("M", 32))
+        self._ef_construction = int(
+            method_param.get("efConstruction", method_param.get("ef_construction", 500))
+        )
+        # Vamana build params (workspace: max_degree in {16,...,64},
+        # search_list_size=500, alpha=1.5).
+        self._max_degree = int(method_param.get("max_degree", 32))
+        self._search_list_size = int(method_param.get("search_list_size", 500))
+        self._alpha = float(method_param.get("alpha", 1.5))
+
+        quantize = str(
+            method_param.get("quantize", _DEFAULT_QUANTIZE[self._index_type])
+        ).lower()
+        if quantize not in _QUANTIZE:
+            raise ValueError(f"[zvec] unsupported quantize: {quantize}")
+        self._quantize_name = quantize
+        self._quantize = _QUANTIZE[quantize]
+
+        # Search-time prefetch (QueryParam); set via set_query_arguments, not build args.
+        self._prefetch: dict[str, int] = {}
+
+        self._ef = self._search_list_size
+        self._query_param = self._make_query_param(self._ef)
+        self._label = self.interface
+        self._collection = None
+        self._path = os.path.join(
+            "zvec_indices",
+            f"{self.interface}_{self._index_type}_{metric}_d{self._dim}"
+            f"_{self._build_tag()}_{quantize}",
+        )
+        self.name = f"zvec-{self.interface}({method_param})"
+
+        # Working buffers for the timed query path.
+        self._q = None
+        self._n = 0
+        self._res = None
+
+    def _build_tag(self) -> str:
+        if self._index_type == "vamana":
+            return f"R{self._max_degree}_L{self._search_list_size}_a{self._alpha}"
+        return f"m{self._m}_efc{self._ef_construction}"
+
+    def _make_index_param(self):
+        if self._index_type == "vamana":
+            return VamanaIndexParam(
+                metric_type=self._metric,
+                max_degree=self._max_degree,
+                search_list_size=self._search_list_size,
+                alpha=self._alpha,
+                use_contiguous_memory=True,
+                quantize_type=self._quantize,
+            )
+        return HnswIndexParam(
+            metric_type=self._metric,
+            m=self._m,
+            ef_construction=self._ef_construction,
+            use_contiguous_memory=True,
+            quantize_type=self._quantize,
+        )
+
+    def _make_query_param(self, ef: int):
+        extra = dict(self._prefetch) if self._prefetch else {}
+        if self._index_type == "vamana":
+            return VamanaQueryParam(ef_search=int(ef), extra_params=extra)
+        return HnswQueryParam(ef=int(ef), extra_params=extra)
+
+    def _default_prefetch(self) -> dict[str, int]:
+        if self._index_type == "vamana":
+            po, pl = _VAMANA_PREFETCH.get(self._max_degree, (0, 0))
+        else:
+            po, pl = _HNSW_PREFETCH.get(self._m, (0, 0))
+        return {"prefetch_offset": po, "prefetch_lines": pl}
+
+    def _parse_query_spec(
+        self, ef_or_spec, prefetch_offset=None, prefetch_lines=None
+    ) -> tuple[int, dict[str, int]]:
+        if isinstance(ef_or_spec, dict):
+            spec = ef_or_spec
+            ef = int(spec["ef"])
+            defaults = self._default_prefetch()
+            po = int(spec.get("prefetch_offset", defaults["prefetch_offset"]))
+            pl = int(spec.get("prefetch_lines", defaults["prefetch_lines"]))
+        else:
+            ef = int(ef_or_spec)
+            if prefetch_offset is None and prefetch_lines is None:
+                return ef, self._default_prefetch()
+            defaults = self._default_prefetch()
+            po = defaults["prefetch_offset"] if prefetch_offset is None else int(prefetch_offset)
+            pl = defaults["prefetch_lines"] if prefetch_lines is None else int(prefetch_lines)
+        return ef, {"prefetch_offset": po, "prefetch_lines": pl}
+
+    # --- fit -----------------------------------------------------------------
+    def fit(self, X: np.ndarray) -> None:
+        X = np.ascontiguousarray(X, dtype=np.float32)
+        if os.path.exists(self._path):
+            shutil.rmtree(self._path)
+        os.makedirs(os.path.dirname(self._path), exist_ok=True)
+
+        schema = CollectionSchema(
+            name=f"annb_{self.interface}",
+            fields=[],
+            vectors=[
+                VectorSchema(
+                    VECTOR_FIELD,
+                    DataType.VECTOR_FP32,
+                    dimension=self._dim,
+                    index_param=self._make_index_param(),
+                )
+            ],
+        )
+
+        build_col = create_and_open(
+            path=self._path,
+            schema=schema,
+            option=CollectionOption(read_only=False, enable_mmap=True),
+        )
+        batch_size = 1024
+        total = len(X)
+        for start in range(0, total, batch_size):
+            end = min(start + batch_size, total)
+            docs = [
+                Doc(id=str(i), vectors={VECTOR_FIELD: X[i].tolist()})
+                for i in range(start, end)
+            ]
+            results = build_col.insert(docs)
+            if not isinstance(results, list):
+                results = [results]
+            for result in results:
+                if not result.ok():
+                    raise RuntimeError(f"[zvec] insert failed: {result.code()}")
+        build_col.optimize(option=OptimizeOption())
+
+        # Release the single-writer handle so we can reopen read-only (mmap),
+        # the path the bench measures search on.
+        build_col = None
+        gc.collect()
+        self._collection = zvec_open(
+            self._path, CollectionOption(read_only=True, enable_mmap=True)
+        )
+        # Cache the raw C++ pybind11 object to bypass the Python
+        # Collection → QueryExecutor middleware on every query.
+        # This matches what zvec/bench does (client.collection._obj).
+        self._raw_obj = self._collection._obj
+
+    def set_query_arguments(self, ef_or_spec, prefetch_offset=None, prefetch_lines=None) -> None:
+        self._ef, self._prefetch = self._parse_query_spec(
+            ef_or_spec, prefetch_offset, prefetch_lines
+        )
+        self._query_param = self._make_query_param(self._ef)
+        qtag = dict(self._prefetch) if self._prefetch else {}
+        self.name = (
+            f"zvec-{self._label}({self._method_param}, ef={self._ef}"
+            + (f", {qtag}" if qtag else "")
+            + ")"
+        )
+
+    # --- 3-stage protocol: only run_prepared_query() is timed ----------------
+    def prepare_query(self, v: np.ndarray, n: int) -> None:
+        self._q = v
+        self._n = n
+
+    def run_prepared_query(self) -> None:
+        self._res = self._search(self._q, self._n)
+
+    def get_prepared_query_results(self):
+        return self._res
+
+    # --- non-prepared path (kept for completeness) ---------------------------
+    def query(self, v: np.ndarray, n: int):
+        return self._search(np.ascontiguousarray(v, dtype=np.float32), n)
+
+    def _search(self, q: np.ndarray, n: int):
+        raise NotImplementedError
+
+    def done(self) -> None:
+        self._raw_obj = None
+        self._collection = None
+        gc.collect()
+
+
+class ZvecQuery(ZvecBase):
+    """Full pipeline path: ``Collection.query`` -> primary-key ids."""
+
+    interface = "query"
+
+    def _search(self, q: np.ndarray, n: int):
+        results = self._collection.query(
+            queries=Query(
+                field_name=VECTOR_FIELD,
+                vector=q,
+                param=self._query_param,
+            ),
+            topk=n,
+            output_fields=[],
+        )
+        if results is None:
+            return []
+        return [int(doc.id) for doc in results]
+
+
+class ZvecFastQuery(ZvecBase):
+    """Bypass path: ``Collection.fast_query`` -> primary-key ids."""
+
+    interface = "fast_query"
+
+    def _search(self, q: np.ndarray, n: int):
+        ids, _scores = self._raw_obj.fast_query(
+            VECTOR_FIELD, q, n, self._query_param
+        )
+        return [int(x) for x in ids]
+
+
+class ZvecFastQueryDocIds(ZvecBase):
+    """Cheapest bypass: ``fast_query_doc_ids_only`` -> internal int64 doc ids.
+
+    With ``with_scores`` set, uses ``fast_query_doc_ids`` (ids + scores) instead.
+    The internal doc id equals the dataset row index because vectors are
+    inserted in row order during fit.
+    """
+
+    interface = "fast_query_doc_ids"
+
+    def __init__(self, metric: str, dim: int, method_param: dict):
+        super().__init__(metric, dim, method_param)
+        self._with_scores = bool(method_param.get("with_scores", False))
+        self._label = "fast_query_doc_ids" if self._with_scores else "fast_query_doc_ids_only"
+        self.name = f"zvec-{self._label}({method_param})"
+
+    def _search(self, q: np.ndarray, n: int):
+        if self._with_scores:
+            ids, _scores = self._raw_obj.fast_query_doc_ids(
+                VECTOR_FIELD, q, n, self._query_param
+            )
+            return ids
+        return self._raw_obj.fast_query_doc_ids_only(
+            VECTOR_FIELD, q, n, self._query_param
+        )
+
+    # --- batch query support (used with --batch flag) -------------------------
+    def prepare_batch_query(self, X, n):
+        self._batch_X = np.ascontiguousarray(X, dtype=np.float32)
+        self._batch_n = n
+
+    def run_batch_query(self):
+        self._batch_res = self._raw_obj.batch_fast_query_doc_ids_only(
+            VECTOR_FIELD, self._batch_X, self._batch_n,
+            self._query_param
+        )
+
+    def get_batch_results(self):
+        return [self._batch_res[i] for i in range(len(self._batch_res))]
+
+
+class ZvecAnnBenchDocIds(ZvecFastQueryDocIds):
+    """Ann-benchmarks bypass: cached C++ indexers + params set once.
+
+    Uses ``ann_bench_prepare`` / ``ann_bench_set_query_params`` /
+    ``ann_bench_search_doc_ids_only`` on the raw collection object. Parallel to
+    ``ZvecFastQueryDocIds``; does not modify the ``fast_query_doc_ids_only`` path.
+    """
+
+    interface = "ann_bench_doc_ids"
+
+    def __init__(self, metric: str, dim: int, method_param: dict):
+        super().__init__(metric, dim, method_param)
+        self._label = "ann_bench_doc_ids"
+        self.name = f"zvec-{self._label}({method_param})"
+
+    def fit(self, X: np.ndarray) -> None:
+        super().fit(X)
+        self._raw_obj.ann_bench_prepare(VECTOR_FIELD)
+        # Pre-allocate output buffer (count is always fixed during a run).
+        self._out_buf = np.empty(10, dtype=np.int64)
+        self._py_timer_ns = 0
+        self._py_timer_count = 0
+
+    def set_query_arguments(self, ef_or_spec, prefetch_offset=None, prefetch_lines=None) -> None:
+        super().set_query_arguments(ef_or_spec, prefetch_offset, prefetch_lines)
+        self._raw_obj.ann_bench_set_query_params(self._query_param)
+
+    def _search(self, q: np.ndarray, n: int):
+        if len(self._out_buf) != n:
+            self._out_buf = np.empty(n, dtype=np.int64)
+        t0 = time.perf_counter_ns()
+        self._raw_obj.ann_bench_search_fast(q, self._out_buf)
+        self._py_timer_ns += time.perf_counter_ns() - t0
+        self._py_timer_count += 1
+        return self._out_buf
+
+    def timer_reset(self):
+        self._py_timer_ns = 0
+        self._py_timer_count = 0
+        self._raw_obj.ann_bench_timer_reset()
+
+    def timer_report(self, run_idx):
+        n = self._py_timer_count
+        labels = ["L1_Python", "L2_Binding", "L3_Collection",
+                  "L4_HNSW", "L5_Vamana"]
+        print(f"[timer] run={run_idx} queries={n}")
+        # L1 from Python
+        avg = self._py_timer_ns / n if n else 0
+        print(f"  {labels[0]:15s}: total={self._py_timer_ns/1e6:.3f}ms  avg={avg:.0f}ns")
+        # L2-L5 from C++
+        for slot in range(1, 5):
+            total = self._raw_obj.ann_bench_timer_get_ns(slot)
+            cnt = self._raw_obj.ann_bench_timer_get_count(slot)
+            avg = total / cnt if cnt else 0
+            print(f"  {labels[slot]:15s}: total={total/1e6:.3f}ms  avg={avg:.0f}ns  count={cnt}")

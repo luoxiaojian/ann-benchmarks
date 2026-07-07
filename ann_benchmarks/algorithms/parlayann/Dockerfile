@@ -11,9 +11,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt install -y git make cmake g++ libaio-dev 
 RUN pip3 install pybind11 numpy
 
 ARG CACHEBUST=1
-RUN git clone -b annbench https://github.com/cmuparlay/ParlayANN.git 
-RUN cd ParlayANN && git submodule update --init --recursive
-RUN cd ParlayANN/python && bash compile.sh
+COPY git_deps/parlayann/ParlayANN /home/app/ParlayANN
+RUN cd ParlayANN/python && rm -f parlay && ln -s ../parlaylib/include/parlay parlay && bash compile.sh
 #RUN cd ParlayANN/python && pip install -e .
 #RUN python3 -c 'import parlaypy'
 ENV PYTHONPATH=$PYTHONPATH:/home/app/ParlayANN/python

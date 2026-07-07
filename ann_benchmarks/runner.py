@@ -42,6 +42,8 @@ def run_individual_query(algo: BaseANN, X_train: numpy.array, X_test: numpy.arra
     best_search_time = float("inf")
     for i in range(run_count):
         print("Run %d/%d..." % (i + 1, run_count))
+        if hasattr(algo, 'timer_reset'):
+            algo.timer_reset()
         # a bit dumb but can't be a scalar since of Python's scoping rules
         n_items_processed = [0]
 
@@ -130,6 +132,8 @@ def run_individual_query(algo: BaseANN, X_train: numpy.array, X_test: numpy.arra
         search_time = total_time / len(X_test)
         avg_candidates = total_candidates / len(X_test)
         best_search_time = min(best_search_time, search_time)
+        if hasattr(algo, 'timer_report'):
+            algo.timer_report(i + 1)
 
     verbose = hasattr(algo, "query_verbose")
     attrs = {

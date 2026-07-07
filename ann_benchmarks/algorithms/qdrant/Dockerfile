@@ -9,8 +9,8 @@ COPY requirements.txt .
 RUN apt-get update \
  && apt-get install -y python3-pip build-essential python3-h5py \
  && python3 -m pip install --break-system-packages --upgrade pip setuptools wheel \
- && python3 -m pip install --break-system-packages -r requirements.txt \
- && python3 -m pip install --break-system-packages qdrant-client==${QDRANT_CLIENT_VERSION}
+ && python3 -m pip install --break-system-packages -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn -r requirements.txt \
+ && python3 -m pip install --break-system-packages -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn qdrant-client==${QDRANT_CLIENT_VERSION}
 
 COPY run_algorithm.py .
 

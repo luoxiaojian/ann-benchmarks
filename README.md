@@ -1,7 +1,10 @@
+Status of ANN-Benchmarks
+========================
+
+At this point, ann-benchmarks is no longer actively maintained. Please consider submitting your work to different benchmarks, such as [VIBE](https://github.com/vector-index-bench/vibe).
+
 Benchmarking nearest neighbors
 ==============================
-
-[![Build Status](https://img.shields.io/github/actions/workflow/status/erikbern/ann-benchmarks/benchmarks.yml?branch=main&style=flat-square)](https://github.com/erikbern/ann-benchmarks/actions/workflows/benchmarks.yml)
 
 Doing fast searching of nearest neighbors in high dimensional spaces is an increasingly important problem with notably few empirical attempts at comparing approaches in an objective way, despite a clear need for such to drive optimization forward.
 
@@ -182,4 +185,5 @@ Related Projects
 ================
 
 - [big-ann-benchmarks](https://github.com/harsha-simhadri/big-ann-benchmarks) is a benchmarking effort for billion-scale approximate nearest neighbor search as part of the [NeurIPS'21 Competition track](https://neurips.cc/Conferences/2021/CompetitionTrack).
+- [VIBE](https://github.com/vector-index-bench/vibe), same functionality as ann-benchmarks but with modern datasets and better tooling.
 

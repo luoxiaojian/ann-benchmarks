@@ -329,6 +329,9 @@ class ZvecFastQueryDocIds(ZvecBase):
     """Cheapest bypass: ``fast_query_doc_ids_only`` -> internal int64 doc ids.
 
     With ``with_scores`` set, uses ``fast_query_doc_ids`` (ids + scores) instead.
+    A query dictionary containing ``refine: true``, ``candidate_topk``, or
+    ``candidates`` requests a larger candidate set through
+    ``fast_query_doc_ids`` and returns top-k ids after FP32 reranking.
     The internal doc id equals the dataset row index because vectors are
     inserted in row order during fit.
     """
@@ -336,10 +339,92 @@ class ZvecFastQueryDocIds(ZvecBase):
     interface = "fast_query_doc_ids"
 
     def __init__(self, metric: str, dim: int, method_param: dict):
+        self._using_refiner = False
+        self._candidate_topk = None
         super().__init__(metric, dim, method_param)
         self._with_scores = bool(method_param.get("with_scores", False))
-        self._label = "fast_query_doc_ids" if self._with_scores else "fast_query_doc_ids_only"
+        self._label = (
+            "fast_query_doc_ids"
+            if self._with_scores
+            else "fast_query_doc_ids_only"
+        )
         self.name = f"zvec-{self._label}({method_param})"
+
+    def _make_query_param(self, ef: int):
+        if not self._using_refiner:
+            return super()._make_query_param(ef)
+        extra = dict(self._prefetch) if self._prefetch else {}
+        if self._index_type == "vamana":
+            return VamanaQueryParam(
+                ef_search=int(ef),
+                is_using_refiner=True,
+                extra_params=extra,
+            )
+        return HnswQueryParam(
+            ef=int(ef),
+            is_using_refiner=True,
+            extra_params=extra,
+        )
+
+    def set_query_arguments(
+        self, ef_or_spec, prefetch_offset=None, prefetch_lines=None
+    ) -> None:
+        is_spec = isinstance(ef_or_spec, dict)
+        using_refiner = is_spec and (
+            bool(ef_or_spec.get("refine", False))
+            or "candidate_topk" in ef_or_spec
+            or "candidates" in ef_or_spec
+        )
+        if not using_refiner:
+            self._using_refiner = False
+            self._candidate_topk = None
+            self.__dict__.pop("_search", None)
+            self._label = (
+                "fast_query_doc_ids"
+                if self._with_scores
+                else "fast_query_doc_ids_only"
+            )
+            super().set_query_arguments(
+                ef_or_spec,
+                prefetch_offset=prefetch_offset,
+                prefetch_lines=prefetch_lines,
+            )
+            return
+
+        candidate_values = {
+            int(ef_or_spec[key])
+            for key in ("candidate_topk", "candidates")
+            if key in ef_or_spec
+        }
+        if not candidate_values:
+            raise ValueError(
+                "[zvec-refine] refine queries require candidate_topk or candidates"
+            )
+        if len(candidate_values) != 1:
+            raise ValueError(
+                "[zvec-refine] candidate_topk and candidates must be equal"
+            )
+        candidate_topk = candidate_values.pop()
+        ef, prefetch = self._parse_query_spec(ef_or_spec)
+        if candidate_topk <= 0:
+            raise ValueError("[zvec-refine] candidate_topk must be positive")
+        if candidate_topk > ef:
+            raise ValueError(
+                f"[zvec-refine] candidate_topk ({candidate_topk}) cannot "
+                f"exceed ef ({ef})"
+            )
+
+        self._using_refiner = True
+        self._ef = ef
+        self._candidate_topk = candidate_topk
+        self._prefetch = prefetch
+        self._query_param = self._make_query_param(ef)
+        self._label = "fast_query_doc_ids_refine"
+        self._search = self._search_refine
+        self.name = (
+            f"zvec-{self._label}({self._method_param}, ef={ef}, "
+            f"candidate_topk={candidate_topk}, prefetch={prefetch})"
+        )
 
     def _search(self, q: np.ndarray, n: int):
         if self._with_scores:
@@ -351,16 +436,39 @@ class ZvecFastQueryDocIds(ZvecBase):
             VECTOR_FIELD, q, n, self._query_param
         )
 
+    def _search_refine(self, q: np.ndarray, n: int):
+        if self._candidate_topk is None:
+            raise RuntimeError(
+                "[zvec-refine] set_query_arguments must be called before querying"
+            )
+        if self._candidate_topk <= n:
+            raise ValueError(
+                f"[zvec-refine] candidate_topk ({self._candidate_topk}) must "
+                f"be greater than benchmark top-k ({n})"
+            )
+        ids, _scores = self._raw_obj.fast_query_doc_ids(
+            VECTOR_FIELD,
+            q,
+            self._candidate_topk,
+            self._query_param,
+        )
+        return ids[:n]
+
     # --- batch query support (used with --batch flag) -------------------------
     def prepare_batch_query(self, X, n):
         self._batch_X = np.ascontiguousarray(X, dtype=np.float32)
         self._batch_n = n
 
     def run_batch_query(self):
-        self._batch_res = self._raw_obj.batch_fast_query_doc_ids_only(
-            VECTOR_FIELD, self._batch_X, self._batch_n,
-            self._query_param
-        )
+        if self._using_refiner:
+            self._batch_res = [
+                self._search(query, self._batch_n) for query in self._batch_X
+            ]
+        else:
+            self._batch_res = self._raw_obj.batch_fast_query_doc_ids_only(
+                VECTOR_FIELD, self._batch_X, self._batch_n,
+                self._query_param
+            )
 
     def get_batch_results(self):
         return [self._batch_res[i] for i in range(len(self._batch_res))]
@@ -370,8 +478,11 @@ class ZvecAnnBenchDocIds(ZvecFastQueryDocIds):
     """Ann-benchmarks bypass: cached C++ indexers + params set once.
 
     Uses ``ann_bench_prepare`` / ``ann_bench_set_query_params`` /
-    ``ann_bench_search_doc_ids_only`` on the raw collection object. Parallel to
-    ``ZvecFastQueryDocIds``; does not modify the ``fast_query_doc_ids_only`` path.
+    ``ann_bench_search_fast`` on the raw collection object. Refine queries use
+    the same cached-indexer and preallocated-output path; the native search
+    gathers the coarse candidates and reranks them through the reference Flat
+    index. Non-refine queries retain the original branch-free ``_search`` hot
+    path.
     """
 
     interface = "ann_bench_doc_ids"
@@ -391,7 +502,43 @@ class ZvecAnnBenchDocIds(ZvecFastQueryDocIds):
 
     def set_query_arguments(self, ef_or_spec, prefetch_offset=None, prefetch_lines=None) -> None:
         super().set_query_arguments(ef_or_spec, prefetch_offset, prefetch_lines)
+        # Bind the mode once when query arguments change. The non-refine hot
+        # path therefore remains the original branch-free class method.
+        if self._using_refiner:
+            self._search = self._search_refine
+        else:
+            self.__dict__.pop("_search", None)
+        self._label = (
+            "ann_bench_doc_ids_refine"
+            if self._using_refiner
+            else "ann_bench_doc_ids"
+        )
+        self.name = (
+            f"zvec-{self._label}({self._method_param}, ef={self._ef}, "
+            f"candidate_topk={self._candidate_topk}, prefetch={self._prefetch})"
+        )
         self._raw_obj.ann_bench_set_query_params(self._query_param)
+
+    def _search_refine(self, q: np.ndarray, n: int):
+        if self._candidate_topk is None:
+            raise RuntimeError(
+                "[zvec-refine] set_query_arguments must be called before querying"
+            )
+        if self._candidate_topk <= n:
+            raise ValueError(
+                f"[zvec-refine] candidate_topk ({self._candidate_topk}) must "
+                f"be greater than benchmark top-k ({n})"
+            )
+        if (
+            not hasattr(self, "_refine_out_buf")
+            or len(self._refine_out_buf) != self._candidate_topk
+        ):
+            self._refine_out_buf = np.empty(self._candidate_topk, dtype=np.int64)
+        t0 = time.perf_counter_ns()
+        self._raw_obj.ann_bench_search_fast(q, self._refine_out_buf)
+        self._py_timer_ns += time.perf_counter_ns() - t0
+        self._py_timer_count += 1
+        return self._refine_out_buf[:n]
 
     def _search(self, q: np.ndarray, n: int):
         if len(self._out_buf) != n:

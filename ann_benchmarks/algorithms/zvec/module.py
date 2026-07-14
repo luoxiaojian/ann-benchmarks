@@ -1,4 +1,4 @@
-"""ann-benchmarks adapters for zvec.
+"""Refine-capable copy of the standard ann-benchmarks adapters for zvec.
 
 Three adapters are provided, one per zvec search entry point, so the
 recall/QPS trade-off of each interface can be compared directly:
@@ -52,14 +52,19 @@ from ..base.module import BaseANN
 # zvec must be initialized exactly once per process; ann-benchmarks may
 # instantiate several adapters in the same container.
 #
-# ann-benchmarks pins each Docker container to a single CPU core via
-# --cpuset-cpus.  zvec's C++ backend spawns ~150 worker threads by default
-# (based on host nproc), and all those threads get confined to the one core,
-# causing extreme context-switch overhead (~40x slowdown).  Setting
-# optimize_threads=1 keeps the build phase serial so it runs efficiently on
-# a single core.
+# ann-benchmarks pins each Docker container to a single CPU via --cpuset-cpus.
+# Zvec's cgroup detection currently reads CPU quota rather than cpuset, so its
+# defaults can still reflect the host CPU count.  Explicitly use one unbound
+# optimize worker and disable query thread binding to match the container's
+# actual CPU allocation.
 try:
-    zvec.init(log_level=LogLevel.WARN, optimize_threads=1)
+    zvec.init(
+        log_level=LogLevel.WARN,
+        # query_threads=1,
+        query_thread_binding=False,
+        optimize_threads=1,
+        optimize_thread_binding=False,
+    )
 except RuntimeError:
     pass
 
@@ -75,6 +80,7 @@ _QUANTIZE = {
     "fp16": QuantizeType.FP16,
     "int8": QuantizeType.INT8,
     "uniform_int8": QuantizeType.UNIFORM_INT8,
+    "uniform_uint8": QuantizeType.UNIFORM_UINT8,
 }
 
 # Workspace defaults: HNSW pairs with UniformInt8, Vamana with Int8.
@@ -122,6 +128,12 @@ class ZvecBase(BaseANN):
         self._max_degree = int(method_param.get("max_degree", 32))
         self._search_list_size = int(method_param.get("search_list_size", 500))
         self._alpha = float(method_param.get("alpha", 1.5))
+        self._two_pass_build = bool(
+            method_param.get(
+                "two_pass_build",
+                method_param.get("two_pass_build_enable", False),
+            )
+        )
 
         quantize = str(
             method_param.get("quantize", _DEFAULT_QUANTIZE[self._index_type])
@@ -130,6 +142,12 @@ class ZvecBase(BaseANN):
             raise ValueError(f"[zvec] unsupported quantize: {quantize}")
         self._quantize_name = quantize
         self._quantize = _QUANTIZE[quantize]
+        self._use_contiguous_memory = bool(
+            method_param.get("use_contiguous_memory", True)
+        )
+        self._use_flat_contiguous_memory = bool(
+            method_param.get("use_flat_contiguous_memory", False)
+        )
 
         # Search-time prefetch (QueryParam); set via set_query_arguments, not build args.
         self._prefetch: dict[str, int] = {}
@@ -151,9 +169,17 @@ class ZvecBase(BaseANN):
         self._res = None
 
     def _build_tag(self) -> str:
+        memory_tag = (
+            f"cm{int(self._use_contiguous_memory)}"
+            f"_fcm{int(self._use_flat_contiguous_memory)}"
+        )
         if self._index_type == "vamana":
-            return f"R{self._max_degree}_L{self._search_list_size}_a{self._alpha}"
-        return f"m{self._m}_efc{self._ef_construction}"
+            passes = "2pass" if self._two_pass_build else "1pass"
+            return (
+                f"R{self._max_degree}_L{self._search_list_size}"
+                f"_a{self._alpha}_{passes}_{memory_tag}"
+            )
+        return f"m{self._m}_efc{self._ef_construction}_{memory_tag}"
 
     def _make_index_param(self):
         if self._index_type == "vamana":
@@ -162,15 +188,18 @@ class ZvecBase(BaseANN):
                 max_degree=self._max_degree,
                 search_list_size=self._search_list_size,
                 alpha=self._alpha,
-                use_contiguous_memory=True,
+                use_contiguous_memory=self._use_contiguous_memory,
+                two_pass_build=self._two_pass_build,
                 quantize_type=self._quantize,
+                use_flat_contiguous_memory=self._use_flat_contiguous_memory,
             )
         return HnswIndexParam(
             metric_type=self._metric,
             m=self._m,
             ef_construction=self._ef_construction,
-            use_contiguous_memory=True,
+            use_contiguous_memory=self._use_contiguous_memory,
             quantize_type=self._quantize,
+            use_flat_contiguous_memory=self._use_flat_contiguous_memory,
         )
 
     def _make_query_param(self, ef: int):
@@ -378,7 +407,6 @@ class ZvecFastQueryDocIds(ZvecBase):
         if not using_refiner:
             self._using_refiner = False
             self._candidate_topk = None
-            self.__dict__.pop("_search", None)
             self._label = (
                 "fast_query_doc_ids"
                 if self._with_scores
@@ -420,13 +448,14 @@ class ZvecFastQueryDocIds(ZvecBase):
         self._prefetch = prefetch
         self._query_param = self._make_query_param(ef)
         self._label = "fast_query_doc_ids_refine"
-        self._search = self._search_refine
         self.name = (
             f"zvec-{self._label}({self._method_param}, ef={ef}, "
             f"candidate_topk={candidate_topk}, prefetch={prefetch})"
         )
 
     def _search(self, q: np.ndarray, n: int):
+        if self._using_refiner:
+            return self._search_refine(q, n)
         if self._with_scores:
             ids, _scores = self._raw_obj.fast_query_doc_ids(
                 VECTOR_FIELD, q, n, self._query_param

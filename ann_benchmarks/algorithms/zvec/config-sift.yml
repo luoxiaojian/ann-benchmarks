@@ -1,9 +1,12 @@
-# Zvec Optimized config — data-driven minimal set covering the full Recall-QPS Pareto frontier.
-# Based on full-sift benchmark results: only Pareto-dominant build configs retained,
-# with 4 query-param variants per ef level for robustness (≥3 groups per recall band).
-# 3 builds × 28 query combos = 84 total runs per constructor (95% reduction vs full).
+# Zvec SIFT/L2 comparison sweep for Vamana and HNSW with uniform int8/uint8.
+# Build configs per constructor:
+#   Vamana: 5 degrees × 2 search-list sizes × 2 quantizers = 20
+#   HNSW:   5 M values × 1 efConstruction × 2 quantizers = 10
+# Each build has 11 ef values × 2 offsets × 2 line counts = 44 query variants.
+# Total: 30 builds × 44 variants = 1,320 runs per constructor.
+# Three constructors are enabled, producing 3,960 result points in total.
 float:
-  any:
+  euclidean:
   - base_args: ['@metric', '@dimension']
     constructor: ZvecQuery
     disabled: false
@@ -11,37 +14,25 @@ float:
     module: ann_benchmarks.algorithms.zvec
     name: zvec-query
     run_groups: &zvec_run_groups
-      Vamana-D64-L300-a15:
+      Vamana:
         args:
           index: vamana
-          max_degree: 64
-          search_list_size: 300
+          max_degree: [16, 24, 32, 48, 64]
+          search_list_size: [300, 500]
           alpha: 1.5
-          quantize: uniform_int8
+          quantize: [uniform_int8, uniform_uint8]
         query_arg_groups:
-          - ef: [10, 16, 20, 28, 40, 64, 128]
+          - ef: [10, 12, 13, 14, 16, 20, 28, 40, 64, 96, 128]
             prefetch_offset: [48, 64]
             prefetch_lines: [0, 2]
-      Vamana-D64-L500-a15:
+      HNSW:
         args:
-          index: vamana
-          max_degree: 64
-          search_list_size: 500
-          alpha: 1.5
-          quantize: uniform_int8
+          index: hnsw
+          M: [16, 24, 32, 48, 64]
+          efConstruction: 500
+          quantize: [uniform_int8, uniform_uint8]
         query_arg_groups:
-          - ef: [10, 16, 20, 28, 40, 64, 128]
-            prefetch_offset: [48, 64]
-            prefetch_lines: [0, 2]
-      Vamana-D64-L500-a13:
-        args:
-          index: vamana
-          max_degree: 64
-          search_list_size: 500
-          alpha: 1.3
-          quantize: uniform_int8
-        query_arg_groups:
-          - ef: [10, 16, 20, 28, 40, 64, 128]
+          - ef: [10, 12, 13, 14, 16, 20, 28, 40, 64, 96, 128]
             prefetch_offset: [48, 64]
             prefetch_lines: [0, 2]
   - base_args: ['@metric', '@dimension']

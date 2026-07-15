@@ -92,6 +92,17 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--algorithm", metavar="NAME", help="run only the named algorithm", default=None)
     parser.add_argument(
+        "--exclude-algorithms",
+        metavar="NAMES",
+        action="append",
+        default=[],
+        help=(
+            "comma-separated algorithm names to skip, matched against the "
+            "Definition.algorithm field; can also be set with "
+            "ANNB_EXCLUDE_ALGORITHMS"
+        ),
+    )
+    parser.add_argument(
         "--docker-tag", metavar="NAME", help="run only algorithms in a particular docker image", default=None
     )
     parser.add_argument(
@@ -282,6 +293,35 @@ def filter_disabled_algorithms(definitions: List[Definition]) -> List[Definition
     return [d for d in definitions if not d.disabled]
 
 
+def parse_excluded_algorithms(args: argparse.Namespace) -> List[str]:
+    excluded = []
+    raw_values = list(args.exclude_algorithms or [])
+    env_value = os.environ.get("ANNB_EXCLUDE_ALGORITHMS")
+    if env_value:
+        raw_values.append(env_value)
+
+    for raw_value in raw_values:
+        for name in raw_value.split(","):
+            name = name.strip()
+            if name:
+                excluded.append(name)
+    return excluded
+
+
+def filter_excluded_algorithms(
+    definitions: List[Definition], excluded_algorithms: List[str]
+) -> List[Definition]:
+    if not excluded_algorithms:
+        return definitions
+
+    excluded = set(excluded_algorithms)
+    skipped = [d for d in definitions if d.algorithm in excluded]
+    if skipped:
+        logger.info(f"Not running excluded algorithms {skipped}")
+
+    return [d for d in definitions if d.algorithm not in excluded]
+
+
 def limit_algorithms(definitions: List[Definition], limit: int) -> List[Definition]:
     """
     Limits the number of algorithm definitions based on the given limit.
@@ -337,6 +377,9 @@ def main():
             check_module_import_and_constructor, definitions
         ))
 
+    definitions = filter_excluded_algorithms(
+        definitions, parse_excluded_algorithms(args)
+    )
     definitions = filter_disabled_algorithms(definitions) if not args.run_disabled else definitions
     definitions = limit_algorithms(definitions, args.max_n_algorithms)
 

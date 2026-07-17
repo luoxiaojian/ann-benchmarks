@@ -27,7 +27,6 @@ from __future__ import annotations
 import gc
 import os
 import shutil
-import time
 
 import numpy as np
 import zvec
@@ -526,8 +525,6 @@ class ZvecAnnBenchDocIds(ZvecFastQueryDocIds):
         self._raw_obj.ann_bench_prepare(VECTOR_FIELD)
         # Pre-allocate output buffer (count is always fixed during a run).
         self._out_buf = np.empty(10, dtype=np.int64)
-        self._py_timer_ns = 0
-        self._py_timer_count = 0
 
     def set_query_arguments(self, ef_or_spec, prefetch_offset=None, prefetch_lines=None) -> None:
         super().set_query_arguments(ef_or_spec, prefetch_offset, prefetch_lines)
@@ -563,37 +560,11 @@ class ZvecAnnBenchDocIds(ZvecFastQueryDocIds):
             or len(self._refine_out_buf) != self._candidate_topk
         ):
             self._refine_out_buf = np.empty(self._candidate_topk, dtype=np.int64)
-        t0 = time.perf_counter_ns()
         self._raw_obj.ann_bench_search_fast(q, self._refine_out_buf)
-        self._py_timer_ns += time.perf_counter_ns() - t0
-        self._py_timer_count += 1
         return self._refine_out_buf[:n]
 
     def _search(self, q: np.ndarray, n: int):
         if len(self._out_buf) != n:
             self._out_buf = np.empty(n, dtype=np.int64)
-        t0 = time.perf_counter_ns()
         self._raw_obj.ann_bench_search_fast(q, self._out_buf)
-        self._py_timer_ns += time.perf_counter_ns() - t0
-        self._py_timer_count += 1
         return self._out_buf
-
-    def timer_reset(self):
-        self._py_timer_ns = 0
-        self._py_timer_count = 0
-        self._raw_obj.ann_bench_timer_reset()
-
-    def timer_report(self, run_idx):
-        n = self._py_timer_count
-        labels = ["L1_Python", "L2_Binding", "L3_Collection",
-                  "L4_HNSW", "L5_Vamana"]
-        print(f"[timer] run={run_idx} queries={n}")
-        # L1 from Python
-        avg = self._py_timer_ns / n if n else 0
-        print(f"  {labels[0]:15s}: total={self._py_timer_ns/1e6:.3f}ms  avg={avg:.0f}ns")
-        # L2-L5 from C++
-        for slot in range(1, 5):
-            total = self._raw_obj.ann_bench_timer_get_ns(slot)
-            cnt = self._raw_obj.ann_bench_timer_get_count(slot)
-            avg = total / cnt if cnt else 0
-            print(f"  {labels[slot]:15s}: total={total/1e6:.3f}ms  avg={avg:.0f}ns  count={cnt}")

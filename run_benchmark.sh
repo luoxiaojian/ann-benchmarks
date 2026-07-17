@@ -37,9 +37,8 @@ fi
 
 # 默认参数(与 ann-benchmarks 官方配置一致)
 # 官方: r6i.16xlarge (32核/512GB), --parallelism 31, hyperthreading disabled
-# 本机: Xeon 8369B (32物理核/495GB), runner 自动识别拓扑、保留1个物理核，
-#       并从其余每个物理核选择1个逻辑CPU，避免两个容器共享SMT兄弟线程。
-PARALLELISM=31      # 并行容器数 = 物理核数-1，每容器独占一个物理核
+# 本机: Xeon 8369B (32核/495GB), 使用相同并行度
+PARALLELISM=31      # 并行容器数 = 物理核数-1，每容器绑定独立CPU核(单CPU公平测试)
 RUNS=5              # 每组查询参数运行次数，取最好成绩
 COUNT=10            # 返回近邻数(k=10)
 TIMEOUT=7200        # 单个算法超时时间(秒)，默认2小时

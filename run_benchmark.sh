@@ -113,7 +113,7 @@ for DATASET in "${DATASETS[@]}"; do
 
     EXCLUDE_ALGORITHMS=""
     if [ "${DATASET}" = "gist-960-euclidean" ]; then
-        EXCLUDE_ALGORITHMS="kgn,vamana(diskann)"
+        EXCLUDE_ALGORITHMS="kgn,vamana(diskann),n2"
         echo ">>> GIST 临时跳过算法: ${EXCLUDE_ALGORITHMS}"
     elif [ "${DATASET}" = "sift-128-euclidean" ]; then
         echo ">>> SIFT 不跳过 kgn / vamana(diskann)"

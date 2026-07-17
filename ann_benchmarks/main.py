@@ -16,6 +16,7 @@ import psutil
 from .definitions import (Definition, InstantiationStatus, algorithm_status,
                                      get_definitions, list_algorithms)
 from .constants import INDEX_DIR
+from .cpu_topology import allocate_worker_cpus
 from .datasets import DATASETS, get_dataset
 from .results import build_result_filepath
 from .runner import run, run_docker
@@ -246,17 +247,43 @@ def create_workers_and_execute(definitions: List[Definition], args: argparse.Nam
         args (argparse.Namespace): User provided arguments for running workers. 
 
     Raises:
-        Exception: If the level of parallelism exceeds the available CPU count or if batch mode is on with more than 
-                   one worker.
+        Exception: If the level of parallelism exceeds the available physical core count or if batch mode is on with
+                   more than one worker.
     """
-    cpu_count = multiprocessing.cpu_count()
-    if args.parallelism > cpu_count - 1:
-        raise Exception(f"Parallelism larger than {cpu_count - 1}! (CPU count minus one)")
-
     if args.batch and args.parallelism > 1:
         raise Exception(
             f"Batch mode uses all available CPU resources, --parallelism should be set to 1. (Was: {args.parallelism})"
         )
+
+    cpu_count = multiprocessing.cpu_count()
+    if args.local or args.batch:
+        if args.parallelism > cpu_count - 1:
+            raise Exception(f"Parallelism larger than {cpu_count - 1}! (CPU count minus one)")
+        worker_cpus = list(range(1, args.parallelism + 1))
+    else:
+        try:
+            allocation = allocate_worker_cpus(args.parallelism)
+        except (RuntimeError, ValueError) as error:
+            raise Exception(str(error)) from error
+
+        if not allocation.topology_detected:
+            logger.warning(
+                "Physical CPU topology is unavailable; falling back to one worker per logical CPU"
+            )
+
+        worker_cpus = list(allocation.worker_cpus)
+        logger.info(
+            "CPU topology: %d logical CPUs, %d physical cores; reserving host CPUs %s; "
+            "benchmark worker CPUs %s",
+            allocation.logical_cpu_count,
+            allocation.physical_core_count,
+            ",".join(map(str, allocation.reserved_cpus)),
+            ",".join(map(str, worker_cpus)),
+        )
+        try:
+            os.sched_setaffinity(0, allocation.reserved_cpus)
+        except (AttributeError, OSError) as error:
+            logger.warning("Could not pin the benchmark coordinator to host CPUs: %s", error)
 
     task_queue = multiprocessing.Queue()
     for definition in definitions:
@@ -265,8 +292,12 @@ def create_workers_and_execute(definitions: List[Definition], args: argparse.Nam
     memory_margin = 500e6  # reserve some extra memory for misc stuff
     mem_limit = int((psutil.virtual_memory().available - memory_margin) / args.parallelism)
 
+    workers = []
     try:
-        workers = [multiprocessing.Process(target=run_worker, args=(i + 1, mem_limit, args, task_queue)) for i in range(args.parallelism)]
+        workers = [
+            multiprocessing.Process(target=run_worker, args=(cpu, mem_limit, args, task_queue))
+            for cpu in worker_cpus
+        ]
         [worker.start() for worker in workers]
         [worker.join() for worker in workers]
     finally:

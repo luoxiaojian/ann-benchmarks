@@ -34,13 +34,23 @@ float:
               - {offset: 128, lines: 4}  # all neighbours, first four lines
               - {offset: 128, lines: 0}  # all neighbours, full vector body
 
-      # Complete two-pass Cartesian build grid. The small degrees preserve the
-      # low-recall Pareto curve; L400 and degree 64 preserve the middle/high
-      # recall frontier seen in recent GIST runs.
+      # Complete two-pass build grid. Degree and reverse-prune batch size are
+      # coupled; those pairs are crossed with all three search-list sizes.
+      # The small degrees preserve the low-recall Pareto curve; L400 and
+      # degree 64 preserve the middle/high recall frontier seen in recent
+      # GIST runs.
       vamana_two_pass:
         arg_groups:
           - index: [vamana]
-            max_degree: [8, 16, 24, 32, 40, 48, 56, 64]
+            coupled_args:
+              - {max_degree: 8, reverse_prune_batch_size: 1}
+              - {max_degree: 16, reverse_prune_batch_size: 2}
+              - {max_degree: 24, reverse_prune_batch_size: 4}
+              - {max_degree: 32, reverse_prune_batch_size: 4}
+              - {max_degree: 40, reverse_prune_batch_size: 4}
+              - {max_degree: 48, reverse_prune_batch_size: 8}
+              - {max_degree: 56, reverse_prune_batch_size: 8}
+              - {max_degree: 64, reverse_prune_batch_size: 8}
             search_list_size: [300, 400, 500]
             alpha: [1.5]
             two_pass_build: [true]

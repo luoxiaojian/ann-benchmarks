@@ -255,16 +255,50 @@ class ZvecBase(BaseANN):
         if isinstance(ef_or_spec, dict):
             spec = ef_or_spec
             ef = int(spec["ef"])
-            defaults = self._default_prefetch()
-            po = int(spec.get("prefetch_offset", defaults["prefetch_offset"]))
-            pl = int(spec.get("prefetch_lines", defaults["prefetch_lines"]))
+            if "prefetch" in spec:
+                if "prefetch_offset" in spec or "prefetch_lines" in spec:
+                    raise ValueError(
+                        "[zvec] prefetch cannot be combined with "
+                        "prefetch_offset/prefetch_lines"
+                    )
+                prefetch = spec["prefetch"]
+                if not isinstance(prefetch, dict):
+                    raise ValueError(
+                        "[zvec] prefetch must be a mapping with offset and lines"
+                    )
+                if set(prefetch) != {"offset", "lines"}:
+                    raise ValueError(
+                        "[zvec] prefetch must contain exactly offset and lines"
+                    )
+                po = int(prefetch["offset"])
+                pl = int(prefetch["lines"])
+            else:
+                defaults = self._default_prefetch()
+                po = int(
+                    spec.get("prefetch_offset", defaults["prefetch_offset"])
+                )
+                pl = int(
+                    spec.get("prefetch_lines", defaults["prefetch_lines"])
+                )
         else:
             ef = int(ef_or_spec)
             if prefetch_offset is None and prefetch_lines is None:
                 return ef, self._default_prefetch()
             defaults = self._default_prefetch()
-            po = defaults["prefetch_offset"] if prefetch_offset is None else int(prefetch_offset)
-            pl = defaults["prefetch_lines"] if prefetch_lines is None else int(prefetch_lines)
+            po = (
+                defaults["prefetch_offset"]
+                if prefetch_offset is None
+                else int(prefetch_offset)
+            )
+            pl = (
+                defaults["prefetch_lines"]
+                if prefetch_lines is None
+                else int(prefetch_lines)
+            )
+        if not 0 <= po <= 256:
+            raise ValueError("[zvec] prefetch offset must be in [0, 256]")
+        if not 0 <= pl <= 256:
+            raise ValueError("[zvec] prefetch lines must be in [0, 256]")
         return ef, {"prefetch_offset": po, "prefetch_lines": pl}
 
     # --- fit -----------------------------------------------------------------

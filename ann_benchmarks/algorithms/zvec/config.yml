@@ -1,6 +1,10 @@
-# Zvec comparison sweep for HNSW and one-/two-pass Vamana builds.
-# The main graph stays in contiguous memory and the raw-vector Flat reference
-# index stays on mmap. Query-time refine groups are intentionally excluded.
+# Cartesian GIST sweep for zvec.
+#
+# Vamana uses one two-pass build grid spanning the complete observed
+# low-to-high-recall curve. Query ef values use a scale-relative, piecewise
+# linear sequence instead of threshold-specific values. Prefetch settings are
+# paired mappings so offset/lines modes are crossed with ef without generating
+# invalid or redundant offset/lines combinations.
 float:
   any:
   - base_args: ['@metric', '@dimension']
@@ -10,39 +14,58 @@ float:
     module: ann_benchmarks.algorithms.zvec
     name: zvec-fast-query-doc-ids
     run_groups: &zvec_run_groups
-      hnsw:
+      # HNSW is not part of the build-parameter Pareto search. M64 is retained
+      # as a high-recall regression sentinel. Its prefetch modes mirror the
+      # Vamana sweep, except PO=128 covers all level-0 neighbours for M=64.
+      hnsw_m64_regression:
         arg_groups:
           - index: [hnsw]
-            M: [16, 24, 32, 48, 64]
+            M: [64]
             efConstruction: [500]
             quantize: [int8]
             use_contiguous_memory: [true]
             use_flat_contiguous_memory: [false]
         query_arg_groups:
-          - ef: &plain_efs [10, 12, 14, 16, 18, 20, 24, 32, 40, 48, 64, 80, 96, 112, 128, 160, 192, 256]
-      vamana:
-        arg_groups:
-          - index: [vamana]
-            max_degree: [24, 32, 48, 64]
-            search_list_size: [300, 500]
-            alpha: [1.5]
-            quantize: [int8]
-            use_contiguous_memory: [true]
-            use_flat_contiguous_memory: [false]
-        query_arg_groups:
-          - ef: *plain_efs
+          - ef: [40, 64, 96, 128, 160, 256, 384, 512]
+            prefetch:
+              - {offset: 0, lines: 0}    # neighbour-vector prefetch disabled
+              - {offset: 128, lines: 1}  # all neighbours, first cache line
+              - {offset: 128, lines: 2}  # all neighbours, first two lines
+              - {offset: 128, lines: 4}  # all neighbours, first four lines
+              - {offset: 128, lines: 0}  # all neighbours, full vector body
+
+      # Complete two-pass Cartesian build grid. The small degrees preserve the
+      # low-recall Pareto curve; L400 and degree 64 preserve the middle/high
+      # recall frontier seen in recent GIST runs.
       vamana_two_pass:
         arg_groups:
           - index: [vamana]
-            max_degree: [24, 32, 48, 64]
-            search_list_size: [300, 500]
+            max_degree: [8, 16, 24, 32, 40, 48, 56, 64]
+            search_list_size: [300, 400, 500]
             alpha: [1.5]
             two_pass_build: [true]
             quantize: [int8]
             use_contiguous_memory: [true]
             use_flat_contiguous_memory: [false]
         query_arg_groups:
-          - ef: *plain_efs
+          # Piecewise-linear ef grid:
+          #   10-20: +2, 24-64: +4, 72-128: +8,
+          #   144-256: +16, 288-512: +32, 576-1024: +64.
+          - ef: [10, 12, 14, 16, 18, 20,
+                 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64,
+                 72, 80, 88, 96, 104, 112, 120, 128,
+                 144, 160, 176, 192, 208, 224, 240, 256,
+                 288, 320, 352, 384, 416, 448, 480, 512,
+                 576, 640, 704, 768, 832, 896, 960, 1024]
+            # PO=256 is clamped by zvec and covers all neighbours for the
+            # configured max_degree <= 64. PL=0 means auto/full-vector.
+            prefetch:
+              - {offset: 0, lines: 0}    # neighbour-vector prefetch disabled
+              - {offset: 256, lines: 1}  # all neighbours, first cache line
+              - {offset: 256, lines: 2}  # all neighbours, first two lines
+              - {offset: 256, lines: 4}  # all neighbours, first four lines
+              - {offset: 256, lines: 0}  # all neighbours, full vector body
+
   - base_args: ['@metric', '@dimension']
     constructor: ZvecAnnBenchDocIds
     disabled: false

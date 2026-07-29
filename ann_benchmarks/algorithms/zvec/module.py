@@ -99,6 +99,35 @@ _VAMANA_PREFETCH = {
     64: (64, 2),
 }
 
+_COUPLED_ARGS_KEY = "coupled_args"
+
+
+def _flatten_coupled_args(method_param: dict) -> dict:
+    """Flatten one zvec-specific coupled build-parameter bundle.
+
+    ann-benchmarks treats the list assigned to ``coupled_args`` as one normal
+    Cartesian axis. Each generated definition therefore reaches this adapter
+    with a single dictionary under that key. Flatten it here so no generic
+    ann-benchmarks framework changes are required.
+    """
+    normalized = dict(method_param)
+    coupled_args = normalized.pop(_COUPLED_ARGS_KEY, None)
+    if coupled_args is None:
+        return normalized
+    if not isinstance(coupled_args, dict):
+        raise ValueError(
+            "[zvec] coupled_args must resolve to one dictionary; "
+            "configure it as a non-empty list of dictionaries"
+        )
+    conflicts = normalized.keys() & coupled_args.keys()
+    if conflicts:
+        raise ValueError(
+            "[zvec] duplicated method parameters between regular arguments "
+            f"and coupled_args: {sorted(conflicts)}"
+        )
+    normalized.update(coupled_args)
+    return normalized
+
 
 class ZvecBase(BaseANN):
     """Shared fit + 3-stage query plumbing; subclasses pick the search path."""
@@ -106,6 +135,7 @@ class ZvecBase(BaseANN):
     interface = "base"
 
     def __init__(self, metric: str, dim: int, method_param: dict):
+        method_param = _flatten_coupled_args(method_param)
         if metric not in _METRIC:
             raise ValueError(f"[zvec] unsupported metric: {metric}")
         self._metric_name = metric

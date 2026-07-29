@@ -127,6 +127,9 @@ class ZvecBase(BaseANN):
         self._max_degree = int(method_param.get("max_degree", 32))
         self._search_list_size = int(method_param.get("search_list_size", 500))
         self._alpha = float(method_param.get("alpha", 1.5))
+        self._reverse_prune_batch_size = int(
+            method_param.get("reverse_prune_batch_size", 1)
+        )
         self._two_pass_build = bool(
             method_param.get(
                 "two_pass_build",
@@ -176,6 +179,7 @@ class ZvecBase(BaseANN):
             passes = "2pass" if self._two_pass_build else "1pass"
             return (
                 f"R{self._max_degree}_L{self._search_list_size}"
+                f"_B{self._reverse_prune_batch_size}"
                 f"_a{self._alpha}_{passes}_{memory_tag}"
             )
         return f"m{self._m}_efc{self._ef_construction}_{memory_tag}"
@@ -187,6 +191,7 @@ class ZvecBase(BaseANN):
                 max_degree=self._max_degree,
                 search_list_size=self._search_list_size,
                 alpha=self._alpha,
+                reverse_prune_batch_size=self._reverse_prune_batch_size,
                 use_contiguous_memory=self._use_contiguous_memory,
                 two_pass_build=self._two_pass_build,
                 quantize_type=self._quantize,

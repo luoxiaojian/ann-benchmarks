@@ -1,0 +1,95 @@
+# Zvec SIFT/L2 historical-high-point pacing experiment on current code.
+#
+# The int8/uint8 matrix and the three enabled query interfaces are identical
+# to the X/Y historical-high-point config.  The benchmark image is compiled
+# with batched robust prune and exact UniformUint8 query-score correction
+# disabled.  Every Vamana configuration explicitly disables bulk build.
+#
+# Historical-grid build configs per constructor:
+#   Vamana two-pass int8:  13 degrees × 2 search-list sizes = 26
+#   Vamana two-pass uint8:  8 degrees × 2 search-list sizes = 16
+#   Total: 42 build configs.
+# Each build has 22 ef values × 2 offsets × 2 line counts = 88 query variants.
+# Total: 42 builds × 88 variants = 3,696 runs per enabled constructor.
+# Three constructors are enabled, producing 11,088 historical-grid points.
+# ABD alone additionally runs 18 UniformUint4 + raw-uint8-refine builds with
+# four targeted query points each: 144 builds and 11,160 points in total.
+# Every Vamana definition explicitly passes reverse_prune_batch_size=1 and
+# use_bulk_build=false.
+float:
+  euclidean:
+  - base_args: ['@metric', '@dimension']
+    constructor: ZvecQuery
+    disabled: false
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec-query
+    run_groups: &zvec_historical_run_groups
+      VamanaTwoPassInt8:
+        args:
+          index: vamana
+          max_degree: [8, 10, 12, 14, 16, 20, 24, 28, 32, 40, 48, 56, 64]
+          search_list_size: [300, 500]
+          alpha: 1.5
+          two_pass_build: true
+          reverse_prune_batch_size: 1
+          use_bulk_build: false
+          quantize: [uniform_int8]
+        query_arg_groups: &dense_query_args
+          - ef: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                 24, 28, 32, 40, 48, 56, 64, 80, 96, 112, 128]
+            prefetch_offset: [48, 64]
+            prefetch_lines: [0, 2]
+      VamanaTwoPassUint8:
+        args:
+          index: vamana
+          max_degree: [8, 12, 24, 32, 40, 48, 56, 64]
+          search_list_size: [300, 500]
+          alpha: 1.5
+          two_pass_build: true
+          reverse_prune_batch_size: 1
+          use_bulk_build: false
+          quantize: [uniform_uint8]
+        query_arg_groups: *dense_query_args
+  - base_args: ['@metric', '@dimension']
+    constructor: ZvecFastQuery
+    disabled: true
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec-fast_query
+    run_groups: *zvec_historical_run_groups
+  - base_args: ['@metric', '@dimension']
+    constructor: ZvecFastQueryDocIds
+    disabled: false
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec-fast_query_doc_ids
+    run_groups: *zvec_historical_run_groups
+  - base_args: ['@metric', '@dimension']
+    constructor: ZvecAnnBenchDocIds
+    disabled: false
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec-ann_bench_doc_ids
+    run_groups:
+      <<: *zvec_historical_run_groups
+      VamanaTwoPassUniformUint4RawUint8Refine:
+        args:
+          index: vamana
+          max_degree: [16, 24, 32, 48, 56, 64]
+          search_list_size: [300, 400, 500]
+          two_pass_build: true
+          reverse_prune_batch_size: 1
+          use_bulk_build: false
+          use_flat_contiguous_memory: true
+          flat_data_type: uint8
+          quantize: uniform_uint4
+        query_args:
+          - - {ef: 17, candidate_topk: 15, refine: true,
+               prefetch: {offset: 80, lines: 3}}
+            - {ef: 17, candidate_topk: 17, refine: true,
+               prefetch: {offset: 128, lines: 2}}
+            - {ef: 26, candidate_topk: 22, refine: true,
+               prefetch: {offset: 224, lines: 3}}
+            - {ef: 45, candidate_topk: 38, refine: true,
+               prefetch: {offset: 160, lines: 3}}

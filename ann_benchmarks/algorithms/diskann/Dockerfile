@@ -1,25 +1,16 @@
 FROM ann-benchmarks
 
 RUN apt-get update
-RUN apt-get install -y wget git cmake g++ libaio-dev libgoogle-perftools-dev clang-format libboost-dev python3 python3-setuptools python3-pip
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y wget git cmake g++ libaio-dev libgoogle-perftools-dev clang-format libboost-dev python3 python3-setuptools python3-pip libmkl-full-dev
 RUN pip3 install pybind11 numpy
 
-RUN cd /tmp && wget https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS-2019.PUB
-RUN cd /tmp && apt-key add GPG-PUB-KEY-INTEL-SW-PRODUCTS-2019.PUB
-RUN cd /tmp && rm GPG-PUB-KEY-INTEL-SW-PRODUCTS-2019.PUB
-RUN cd /tmp && sh -c 'echo deb https://apt.repos.intel.com/mkl all main > /etc/apt/sources.list.d/intel-mkl.list'
-RUN apt-get update
-RUN apt-get install -y intel-mkl-64bit-2020.0-088
-
-RUN update-alternatives --install /usr/lib/x86_64-linux-gnu/libblas.so     libblas.so-x86_64-linux-gnu      /opt/intel/mkl/lib/intel64/libmkl_rt.so 150
-RUN update-alternatives --install /usr/lib/x86_64-linux-gnu/libblas.so.3   libblas.so.3-x86_64-linux-gnu    /opt/intel/mkl/lib/intel64/libmkl_rt.so 150
-RUN update-alternatives --install /usr/lib/x86_64-linux-gnu/liblapack.so   liblapack.so-x86_64-linux-gnu    /opt/intel/mkl/lib/intel64/libmkl_rt.so 150
-RUN update-alternatives --install /usr/lib/x86_64-linux-gnu/liblapack.so.3 liblapack.so.3-x86_64-linux-gnu  /opt/intel/mkl/lib/intel64/libmkl_rt.so 150
-
-RUN echo "/opt/intel/lib/intel64"     >  /etc/ld.so.conf.d/mkl.conf
-RUN echo "/opt/intel/mkl/lib/intel64" >> /etc/ld.so.conf.d/mkl.conf
-RUN ldconfig
-RUN echo "MKL_THREADING_LAYER=GNU" >> /etc/environment
+# The legacy DiskANN branch expects Intel's old /opt layout. Ubuntu's MKL
+# package provides the same headers and libraries under /usr.
+RUN mkdir -p /opt/intel/compilers_and_libraries/linux/mkl/lib /opt/intel/compilers_and_libraries/linux/lib && \
+    ln -s /usr/include/mkl /opt/intel/compilers_and_libraries/linux/mkl/include && \
+    ln -s /usr/lib/x86_64-linux-gnu /opt/intel/compilers_and_libraries/linux/mkl/lib/intel64 && \
+    ln -s /usr/lib/x86_64-linux-gnu /opt/intel/compilers_and_libraries/linux/lib/intel64
+ENV MKL_THREADING_LAYER=GNU
 
 RUN git clone --single-branch --branch python_bindings https://github.com/microsoft/diskann
 RUN mkdir -p diskann/build

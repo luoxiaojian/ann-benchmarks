@@ -2,7 +2,9 @@ float:
   any:
     - base_args: ["@metric", "@dimension"]
       constructor: MilvusFLAT
-      disabled: false
+      # The adapter launches sibling containers through the host Docker socket,
+      # outside ann-benchmarks' CPU and memory cgroup.
+      disabled: true
       docker_tag: ann-benchmarks-milvus
       module: ann_benchmarks.algorithms.milvus
       name: milvus-flat
@@ -12,7 +14,7 @@ float:
             placeholder: [0]
     - base_args: ["@metric", "@dimension"]
       constructor: MilvusIVFFLAT
-      disabled: false
+      disabled: true
       docker_tag: ann-benchmarks-milvus
       module: ann_benchmarks.algorithms.milvus
       name: milvus-ivfflat
@@ -23,7 +25,7 @@ float:
           query_args: [[1, 10, 20, 50, 100]]
     - base_args: ["@metric", "@dimension"]
       constructor: MilvusIVFSQ8
-      disabled: false
+      disabled: true
       docker_tag: ann-benchmarks-milvus
       module: ann_benchmarks.algorithms.milvus
       name: milvus-ivfsq8
@@ -34,7 +36,7 @@ float:
           query_args: [[1, 10, 20, 50, 100]]
     - base_args: ["@metric", "@dimension"]
       constructor: MilvusIVFPQ
-      disabled: false
+      disabled: true
       docker_tag: ann-benchmarks-milvus
       module: ann_benchmarks.algorithms.milvus
       name: milvus-ivfpq
@@ -46,7 +48,7 @@ float:
           query_args: [[1, 10, 20, 50, 100]]
     - base_args: ["@metric", "@dimension"]
       constructor: MilvusHNSW
-      disabled: false
+      disabled: true
       docker_tag: ann-benchmarks-milvus
       module: ann_benchmarks.algorithms.milvus
       name: milvus-hnsw
@@ -58,7 +60,7 @@ float:
           query_args: [[10, 20, 40, 80, 120, 200, 400, 600, 800]]
     - base_args: ["@metric", "@dimension"]
       constructor: MilvusSCANN
-      disabled: false
+      disabled: true
       docker_tag: ann-benchmarks-milvus
       module: ann_benchmarks.algorithms.milvus
       name: milvus-scann

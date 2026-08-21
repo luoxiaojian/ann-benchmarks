@@ -2,7 +2,9 @@ float:
   any:
   - base_args: ['@metric']
     constructor: PGEmbedding
-    disabled: false
+    # The Euclidean branch requests an ivfflat access method that
+    # pg_embedding does not provide.
+    disabled: true
     docker_tag: ann-benchmarks-pg_embedding
     module: ann_benchmarks.algorithms.pg_embedding
     name: pg_embedding

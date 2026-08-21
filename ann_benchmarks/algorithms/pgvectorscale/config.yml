@@ -2,7 +2,9 @@ float:
   any:
   - base_args: ['@metric', 1]
     constructor: PGDiskANN
-    disabled: false
+    # Disabled until the adapter uses the requested distance operator and
+    # preserves floating-point max_alpha values.
+    disabled: true
     docker_tag: ann-benchmarks-pgvectorscale
     module: ann_benchmarks.algorithms.pgvectorscale
     name: pgvectorscale1
@@ -33,7 +35,7 @@ float:
         query_args: [[10, 20, 40, 80, 120, 200, 400, 800]]
   - base_args: ['@metric', 2]
     constructor: PGDiskANN
-    disabled: false
+    disabled: true
     docker_tag: ann-benchmarks-pgvectorscale
     module: ann_benchmarks.algorithms.pgvectorscale
     name: pgvectorscale2
@@ -64,7 +66,7 @@ float:
         query_args: [[10, 20, 40, 80, 120, 200, 400, 800]]
   - base_args: ['@metric', 4]
     constructor: PGDiskANN
-    disabled: false
+    disabled: true
     docker_tag: ann-benchmarks-pgvectorscale
     module: ann_benchmarks.algorithms.pgvectorscale
     name: pgvectorscale4

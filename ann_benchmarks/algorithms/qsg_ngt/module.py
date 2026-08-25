@@ -4,9 +4,8 @@ import subprocess
 import time
 import importlib
 import gc
-from sklearn import preprocessing
-
 import ngtpy
+from sklearn import preprocessing
 import numpy as np
 from ..base.module import BaseANN
 

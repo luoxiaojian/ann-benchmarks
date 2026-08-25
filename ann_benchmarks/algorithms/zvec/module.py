@@ -188,6 +188,14 @@ class ZvecBase(BaseANN):
 
     def fit(self, X: np.ndarray) -> None:
         X = np.ascontiguousarray(X, dtype=np.float32)
+        if X.ndim != 2:
+            raise ValueError(f"[zvec] expected a two-dimensional training set, got shape {X.shape}")
+        if X.shape[1] != self._dim:
+            raise ValueError(
+                f"[zvec] expected training vectors with dimension {self._dim}, got {X.shape[1]}"
+            )
+        self._validate_flat_data_compatibility(X)
+
         if os.path.exists(self._path):
             shutil.rmtree(self._path)
         os.makedirs(os.path.dirname(self._path), exist_ok=True)
@@ -224,6 +232,35 @@ class ZvecBase(BaseANN):
         build_col = None
         gc.collect()
         self._open_readonly()
+
+    def _validate_flat_data_compatibility(self, X: np.ndarray) -> None:
+        """Reject lossy raw-vector conversion before creating an index."""
+        if self._flat_data_type_name != "uint8":
+            return
+
+        for start in range(0, len(X), 16384):
+            chunk = X[start : start + 16384]
+            if not np.isfinite(chunk).all():
+                self._skip_incompatible_flat_data(
+                    "flat_data_type=uint8 requires finite raw vector values"
+                )
+            minimum = float(chunk.min())
+            maximum = float(chunk.max())
+            if minimum < 0 or maximum > 255:
+                self._skip_incompatible_flat_data(
+                    "flat_data_type=uint8 requires raw vector values in [0, 255]; "
+                    f"observed [{minimum}, {maximum}]"
+                )
+            if not np.equal(chunk, chunk.astype(np.uint8)).all():
+                self._skip_incompatible_flat_data(
+                    "flat_data_type=uint8 requires raw vector values that can be "
+                    "converted to uint8 without loss"
+                )
+
+    @staticmethod
+    def _skip_incompatible_flat_data(reason: str) -> None:
+        print(f"[zvec] skipping incompatible index build: {reason}", flush=True)
+        raise SystemExit(0)
 
     @staticmethod
     def _validate_prefetch(prefetch: dict) -> dict:

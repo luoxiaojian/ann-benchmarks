@@ -14,10 +14,6 @@ ANNB_DATASET_URL="https://ann-benchmarks.com/${ANNB_DATASET}.hdf5"
 ANNB_COUNT=10
 ANNB_RUN_COUNT=5
 ANNB_PARALLELISM=31
-ANNB_ZVEC_WHEEL="zvec-0.5.1.dev39-cp310-cp310-linux_x86_64.whl"
-ANNB_ZVEC_WHEEL_SHA256="79bb1ddaa69509a5b252bc5151fc3ca5ed4034686c4d2c273237f73f794de4a4"
-ANNB_ZVEC_SOURCE_BRANCH="uniform_uint8"
-ANNB_ZVEC_SOURCE_COMMIT="8d0c5ed277fbca176be51589a2524bd15acd0c7a"
 # Keep the stock ANN-Benchmarks per-definition timeout. This is intentionally
 # not configurable: changing it would make the run incomparable with the
 # repository's default benchmark procedure.
@@ -249,6 +245,56 @@ raise SystemExit(0 if not missing and not invalid else 1)
 PY
 }
 
+annb_snapshot_images() {
+    local ANNB_SNAPSHOT_PHASE="$1"
+    local ANNB_REQUIRED_IMAGES_FILE="${ANNB_ATTEMPT_DIR}/required-images.txt"
+    local ANNB_REPRO_DIR="${ANNB_ATTEMPT_DIR}/reproducibility"
+    local ANNB_IMAGE_TAG
+    local ANNB_IMAGE_METADATA
+    local ANNB_SNAPSHOT_RC=0
+    local ANNB_IMAGE_TAGS=()
+
+    [[ -f "$ANNB_REQUIRED_IMAGES_FILE" ]] || return 0
+    mkdir -p "$ANNB_REPRO_DIR"
+    mapfile -t ANNB_IMAGE_TAGS < <(sed '/^[[:space:]]*$/d' "$ANNB_REQUIRED_IMAGES_FILE")
+
+    {
+        printf 'docker_tag\timage_id\tcreated\n'
+        for ANNB_IMAGE_TAG in "${ANNB_IMAGE_TAGS[@]}"; do
+            if ANNB_IMAGE_METADATA="$(docker image inspect "$ANNB_IMAGE_TAG" \
+                --format '{{.Id}}{{printf "\t"}}{{.Created}}' 2>/dev/null)"; then
+                printf '%s\t%s\n' "$ANNB_IMAGE_TAG" "$ANNB_IMAGE_METADATA"
+            else
+                printf '%s\tMISSING\tMISSING\n' "$ANNB_IMAGE_TAG"
+                ANNB_SNAPSHOT_RC=1
+            fi
+        done
+    } >"${ANNB_REPRO_DIR}/image-lock-${ANNB_SNAPSHOT_PHASE}.tsv"
+
+    if ((${#ANNB_IMAGE_TAGS[@]})); then
+        docker image inspect "${ANNB_IMAGE_TAGS[@]}" \
+            >"${ANNB_REPRO_DIR}/docker-image-inspect-${ANNB_SNAPSHOT_PHASE}.json" \
+            2>"${ANNB_REPRO_DIR}/docker-image-inspect-${ANNB_SNAPSHOT_PHASE}.errors" \
+            || ANNB_SNAPSHOT_RC=1
+    fi
+    return "$ANNB_SNAPSHOT_RC"
+}
+
+annb_compare_image_snapshots() {
+    local ANNB_REPRO_DIR="${ANNB_ATTEMPT_DIR}/reproducibility"
+    local ANNB_BEFORE="${ANNB_REPRO_DIR}/image-lock-before.tsv"
+    local ANNB_AFTER="${ANNB_REPRO_DIR}/image-lock-after.tsv"
+    [[ -f "$ANNB_BEFORE" && -f "$ANNB_AFTER" ]] || return 0
+
+    if diff -u "$ANNB_BEFORE" "$ANNB_AFTER" >"${ANNB_REPRO_DIR}/image-lock-diff.txt"; then
+        printf 'IMAGE_TAGS_STABLE=true\n' >"${ANNB_REPRO_DIR}/image-lock-status.txt"
+    else
+        printf 'IMAGE_TAGS_STABLE=false\n' >"${ANNB_REPRO_DIR}/image-lock-status.txt"
+        printf 'Warning: one or more Docker tags changed during this benchmark; see %s.\n' \
+            "${ANNB_REPRO_DIR}/image-lock-diff.txt" >&2
+    fi
+}
+
 annb_on_signal() {
     local ANNB_SIGNAL="$1"
     trap - INT TERM
@@ -279,12 +325,14 @@ annb_on_exit() {
         cp "${ANNB_REPO_DIR}/annb.log" "${ANNB_ATTEMPT_DIR}/framework.log"
     fi
     annb_collect_results
+    if [[ -f "${ANNB_ATTEMPT_DIR}/reproducibility/image-lock-before.tsv" ]]; then
+        annb_snapshot_images after || true
+        annb_compare_image_snapshots
+    fi
     if ((ANNB_BENCHMARK_STARTED)); then
         annb_audit_results >"${ANNB_ATTEMPT_DIR}/audit.log" 2>&1
         ANNB_AUDIT_RC=$?
-        sha256sum \
-            "${ANNB_REPO_DIR}/data/${ANNB_DATASET}.hdf5" \
-            "${ANNB_REPO_DIR}/ann_benchmarks/algorithms/zvec/${ANNB_ZVEC_WHEEL}" \
+        sha256sum "${ANNB_REPO_DIR}/data/${ANNB_DATASET}.hdf5" \
             >"${ANNB_ATTEMPT_DIR}/input-sha256.txt" 2>&1
     fi
     if ((ANNB_RC != 0)); then
@@ -509,28 +557,6 @@ if ((ANNB_MISSING_IMAGES)); then
     exit 1
 fi
 
-ANNB_ZVEC_WHEEL_PATH="${ANNB_REPO_DIR}/ann_benchmarks/algorithms/zvec/${ANNB_ZVEC_WHEEL}"
-ANNB_ACTUAL_WHEEL_SHA256="$(sha256sum "$ANNB_ZVEC_WHEEL_PATH" | awk '{print $1}')"
-if [[ "$ANNB_ACTUAL_WHEEL_SHA256" != "$ANNB_ZVEC_WHEEL_SHA256" ]]; then
-    ANNB_STATE="PREFLIGHT_FAILED"
-    printf 'Unexpected zvec wheel SHA-256: expected %s, got %s\n' \
-        "$ANNB_ZVEC_WHEEL_SHA256" "$ANNB_ACTUAL_WHEEL_SHA256" >&2
-    exit 1
-fi
-ANNB_IMAGE_WHEEL_SHA256="$(docker image inspect ann-benchmarks-zvec \
-    --format '{{index .Config.Labels "zvec.wheel_sha256"}}')"
-ANNB_IMAGE_SOURCE_BRANCH="$(docker image inspect ann-benchmarks-zvec \
-    --format '{{index .Config.Labels "zvec.source_branch"}}')"
-ANNB_IMAGE_SOURCE_COMMIT="$(docker image inspect ann-benchmarks-zvec \
-    --format '{{index .Config.Labels "zvec.commit"}}')"
-if [[ "$ANNB_IMAGE_WHEEL_SHA256" != "$ANNB_ZVEC_WHEEL_SHA256" || \
-      "$ANNB_IMAGE_SOURCE_BRANCH" != "$ANNB_ZVEC_SOURCE_BRANCH" || \
-      "$ANNB_IMAGE_SOURCE_COMMIT" != "$ANNB_ZVEC_SOURCE_COMMIT" ]]; then
-    ANNB_STATE="PREFLIGHT_FAILED"
-    printf 'ann-benchmarks-zvec image provenance does not match this GIST run.\n' >&2
-    exit 1
-fi
-
 ANNB_REPRO_DIR="${ANNB_ATTEMPT_DIR}/reproducibility"
 mkdir -p "${ANNB_REPRO_DIR}/source/algorithms"
 while IFS= read -r ANNB_ALGORITHM_DIRECTORY; do
@@ -551,10 +577,54 @@ for ANNB_ZVEC_SOURCE_NAME in config.yml config-sift.yml module.py module-gist.py
             "${ANNB_REPRO_DIR}/source/zvec/"
     fi
 done
-cp "$ANNB_ZVEC_WHEEL_PATH" "${ANNB_REPRO_DIR}/source/zvec/"
-mapfile -t ANNB_REQUIRED_IMAGES <"${ANNB_ATTEMPT_DIR}/required-images.txt"
-docker image inspect "${ANNB_REQUIRED_IMAGES[@]}" \
-    >"${ANNB_REPRO_DIR}/docker-image-inspect.json"
+
+# The image selected by config.yml is authoritative. Labels are recorded for
+# provenance only; they never pin the launcher to a particular zvec build.
+ANNB_ZVEC_PROVENANCE_FILE="${ANNB_REPRO_DIR}/zvec-image-provenance.txt"
+if grep -Fxq 'ann-benchmarks-zvec' "${ANNB_ATTEMPT_DIR}/required-images.txt"; then
+    ANNB_ZVEC_IMAGE_ID="$(docker image inspect ann-benchmarks-zvec --format '{{.Id}}')"
+    ANNB_ZVEC_IMAGE_CREATED="$(docker image inspect ann-benchmarks-zvec --format '{{.Created}}')"
+    ANNB_ZVEC_WHEEL_LABEL="$(docker image inspect ann-benchmarks-zvec \
+        --format '{{if .Config.Labels}}{{index .Config.Labels "zvec.wheel"}}{{end}}' 2>/dev/null || true)"
+    ANNB_ZVEC_WHEEL_SHA_LABEL="$(docker image inspect ann-benchmarks-zvec \
+        --format '{{if .Config.Labels}}{{index .Config.Labels "zvec.wheel_sha256"}}{{end}}' 2>/dev/null || true)"
+    ANNB_ZVEC_BRANCH_LABEL="$(docker image inspect ann-benchmarks-zvec \
+        --format '{{if .Config.Labels}}{{index .Config.Labels "zvec.source_branch"}}{{end}}' 2>/dev/null || true)"
+    ANNB_ZVEC_COMMIT_LABEL="$(docker image inspect ann-benchmarks-zvec \
+        --format '{{if .Config.Labels}}{{index .Config.Labels "zvec.commit"}}{{end}}' 2>/dev/null || true)"
+    {
+        printf 'DOCKER_TAG=ann-benchmarks-zvec\n'
+        printf 'IMAGE_ID=%s\n' "$ANNB_ZVEC_IMAGE_ID"
+        printf 'IMAGE_CREATED=%s\n' "$ANNB_ZVEC_IMAGE_CREATED"
+        printf 'LABEL_WHEEL=%s\n' "$ANNB_ZVEC_WHEEL_LABEL"
+        printf 'LABEL_WHEEL_SHA256=%s\n' "$ANNB_ZVEC_WHEEL_SHA_LABEL"
+        printf 'LABEL_SOURCE_BRANCH=%s\n' "$ANNB_ZVEC_BRANCH_LABEL"
+        printf 'LABEL_SOURCE_COMMIT=%s\n' "$ANNB_ZVEC_COMMIT_LABEL"
+    } >"$ANNB_ZVEC_PROVENANCE_FILE"
+
+    if [[ -n "$ANNB_ZVEC_WHEEL_LABEL" && "$ANNB_ZVEC_WHEEL_LABEL" != */* && \
+          -f "${ANNB_REPO_DIR}/ann_benchmarks/algorithms/zvec/${ANNB_ZVEC_WHEEL_LABEL}" ]]; then
+        ANNB_ZVEC_WHEEL_PATH="${ANNB_REPO_DIR}/ann_benchmarks/algorithms/zvec/${ANNB_ZVEC_WHEEL_LABEL}"
+        cp "$ANNB_ZVEC_WHEEL_PATH" "${ANNB_REPRO_DIR}/source/zvec/"
+        read -r ANNB_ZVEC_ACTUAL_WHEEL_SHA _ < <(sha256sum "$ANNB_ZVEC_WHEEL_PATH")
+        printf 'ARCHIVED_WHEEL_SHA256=%s\n' "$ANNB_ZVEC_ACTUAL_WHEEL_SHA" \
+            >>"$ANNB_ZVEC_PROVENANCE_FILE"
+        if [[ -n "$ANNB_ZVEC_WHEEL_SHA_LABEL" && \
+              "$ANNB_ZVEC_ACTUAL_WHEEL_SHA" != "$ANNB_ZVEC_WHEEL_SHA_LABEL" ]]; then
+            printf 'WHEEL_SHA256_MATCH_LABEL=false\n' >>"$ANNB_ZVEC_PROVENANCE_FILE"
+            printf 'Warning: zvec wheel SHA-256 does not match the image label; recorded without blocking.\n' >&2
+        else
+            printf 'WHEEL_SHA256_MATCH_LABEL=true\n' >>"$ANNB_ZVEC_PROVENANCE_FILE"
+        fi
+    else
+        printf 'ARCHIVED_WHEEL_STATUS=unavailable_or_unsafe_label\n' >>"$ANNB_ZVEC_PROVENANCE_FILE"
+        printf 'Warning: the zvec wheel named by the image label was not archived; the image remains runnable.\n' >&2
+    fi
+fi
+
+annb_snapshot_images before
+cp "${ANNB_REPRO_DIR}/docker-image-inspect-before.json" \
+    "${ANNB_REPRO_DIR}/docker-image-inspect.json"
 find "${ANNB_REPRO_DIR}/source" -type f -print0 | sort -z | xargs -0 sha256sum \
     >"${ANNB_REPRO_DIR}/source-sha256.txt"
 

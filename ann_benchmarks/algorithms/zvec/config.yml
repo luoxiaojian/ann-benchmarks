@@ -1,276 +1,263 @@
-# Auto-prefetch counterpart of config-sift-gist-pareto-compact.yml.
-# All index-build and non-prefetch query parameters are unchanged.
-# Vamana prefetch fields are intentionally omitted so zvec resolves
-# them from max_degree and the stored-vector schema at query setup.
-# Scalar ef-only queries use compact flow lists. Multi-field queries retain
-# one mapping per line inside the required outer query_args argument group.
+# Compare prepared query and query_internal_ids on the same parameter grid.
+# Uniform groups target SIFT; Record groups target GIST.
+# UniformInt8 uses UINT7. scale_factor=1.0 disables refinement.
 float:
   euclidean:
-    - base_args: ['@metric', '@dimension']
-      constructor: ZvecAnnBenchDocIds
-      disabled: false
-      docker_tag: ann-benchmarks-zvec
-      module: ann_benchmarks.algorithms.zvec
-      name: zvec-ann_bench_doc_ids
-      run_groups: &zvec_auto_prefetch_run_groups
-        UniformInt8:
-          args:
-            index: vamana
-            max_degree: [10, 22, 36, 48]
-            search_list_size: [300, 500]
-            alpha: [1.5]
-            use_bulk_build: false
-            quantize: uniform_int8
-          query_args:
-            - [10, 11, 12, 13, 15, 17]
-        UniformUint4Refine:
-          args:
-            index: vamana
-            max_degree: [48, 52, 64]
-            search_list_size: [300, 400]
-            alpha: [1.5]
-            use_bulk_build: false
-            use_flat_contiguous_memory: true
-            flat_data_type: uint8
-            quantize: uniform_uint4
-          query_args:
-            - [
-                {ef: 17, candidate_topk: 15, refine: true},
-                {ef: 17, candidate_topk: 17, refine: true},
-                {ef: 20, candidate_topk: 18, refine: true},
-                {ef: 22, candidate_topk: 19, refine: true},
-                {ef: 24, candidate_topk: 20, refine: true},
-                {ef: 24, candidate_topk: 24, refine: true},
-                {ef: 26, candidate_topk: 22, refine: true},
-                {ef: 26, candidate_topk: 26, refine: true},
-                {ef: 30, candidate_topk: 25, refine: true},
-                {ef: 34, candidate_topk: 28, refine: true},
-                {ef: 38, candidate_topk: 32, refine: true},
-                {ef: 45, candidate_topk: 38, refine: true},
-                {ef: 45, candidate_topk: 40, refine: true},
-                {ef: 52, candidate_topk: 44, refine: true},
-                {ef: 64, candidate_topk: 54, refine: true},
-                {ef: 80, candidate_topk: 68, refine: true},
-                {ef: 104, candidate_topk: 88, refine: true},
-                {ef: 136, candidate_topk: 98, refine: true}
-              ]
-        RecordInt8LowDegree:
-          args:
-            index: vamana
-            max_degree: [32, 48]
-            search_list_size: [300]
-            alpha: [1.3]
-            use_bulk_build: false
-            use_flat_contiguous_memory: true
-            flat_data_type: fp16
-          query_args:
-            - [24, 27, 28, 31, 32, 36, 40, 43, 48, 56, 64, 72, 80, 88, 96, 104, 112, 128, 144, 160, 192,
-                {ef: 80, candidate_topk: 11, refine: true},
-                {ef: 80, candidate_topk: 12, refine: true},
-                {ef: 80, candidate_topk: 14, refine: true},
-                {ef: 88, candidate_topk: 11, refine: true},
-                {ef: 88, candidate_topk: 12, refine: true},
-                {ef: 88, candidate_topk: 14, refine: true},
-                {ef: 96, candidate_topk: 11, refine: true},
-                {ef: 96, candidate_topk: 12, refine: true},
-                {ef: 96, candidate_topk: 14, refine: true},
-                {ef: 104, candidate_topk: 11, refine: true},
-                {ef: 104, candidate_topk: 12, refine: true},
-                {ef: 104, candidate_topk: 14, refine: true},
-                {ef: 112, candidate_topk: 11, refine: true},
-                {ef: 112, candidate_topk: 12, refine: true},
-                {ef: 112, candidate_topk: 14, refine: true},
-                {ef: 128, candidate_topk: 11, refine: true},
-                {ef: 128, candidate_topk: 12, refine: true},
-                {ef: 128, candidate_topk: 14, refine: true},
-                {ef: 144, candidate_topk: 11, refine: true},
-                {ef: 144, candidate_topk: 12, refine: true},
-                {ef: 144, candidate_topk: 14, refine: true},
-                {ef: 160, candidate_topk: 11, refine: true},
-                {ef: 160, candidate_topk: 12, refine: true},
-                {ef: 160, candidate_topk: 14, refine: true},
-                {ef: 176, candidate_topk: 11, refine: true},
-                {ef: 176, candidate_topk: 12, refine: true},
-                {ef: 176, candidate_topk: 14, refine: true},
-                {ef: 192, candidate_topk: 11, refine: true},
-                {ef: 192, candidate_topk: 12, refine: true},
-                {ef: 192, candidate_topk: 14, refine: true},
-                {ef: 224, candidate_topk: 11, refine: true},
-                {ef: 224, candidate_topk: 12, refine: true},
-                {ef: 224, candidate_topk: 14, refine: true},
-                {ef: 236, candidate_topk: 11, refine: true},
-                {ef: 236, candidate_topk: 12, refine: true},
-                {ef: 236, candidate_topk: 14, refine: true},
-                {ef: 256, candidate_topk: 11, refine: true},
-                {ef: 256, candidate_topk: 12, refine: true},
-                {ef: 256, candidate_topk: 14, refine: true},
-                {ef: 320, candidate_topk: 11, refine: true},
-                {ef: 320, candidate_topk: 12, refine: true},
-                {ef: 320, candidate_topk: 14, refine: true},
-                {ef: 344, candidate_topk: 11, refine: true},
-                {ef: 344, candidate_topk: 12, refine: true},
-                {ef: 344, candidate_topk: 14, refine: true}
-              ]
-        RecordInt8MidDegree:
-          args:
-            index: vamana
-            max_degree: [48, 68, 72]
-            search_list_size: [600]
-            alpha: [1.3]
-            reverse_prune_batch_size: 8
-            use_flat_contiguous_memory: true
-            flat_data_type: fp16
-          query_args: &zvec_record_int8_mid_query_args
-            - [24, 27, 28, 31, 32, 36, 40, 43, 48, 56, 64, 72, 80, 88, 96, 104, 112, 128, 144, 160, 192,
-                {ef: 80, candidate_topk: 11, refine: true},
-                {ef: 80, candidate_topk: 12, refine: true},
-                {ef: 80, candidate_topk: 14, refine: true},
-                {ef: 88, candidate_topk: 11, refine: true},
-                {ef: 88, candidate_topk: 12, refine: true},
-                {ef: 88, candidate_topk: 14, refine: true},
-                {ef: 96, candidate_topk: 11, refine: true},
-                {ef: 96, candidate_topk: 12, refine: true},
-                {ef: 96, candidate_topk: 14, refine: true},
-                {ef: 104, candidate_topk: 11, refine: true},
-                {ef: 104, candidate_topk: 12, refine: true},
-                {ef: 104, candidate_topk: 14, refine: true},
-                {ef: 112, candidate_topk: 11, refine: true},
-                {ef: 112, candidate_topk: 12, refine: true},
-                {ef: 112, candidate_topk: 14, refine: true},
-                {ef: 128, candidate_topk: 11, refine: true},
-                {ef: 128, candidate_topk: 12, refine: true},
-                {ef: 128, candidate_topk: 14, refine: true},
-                {ef: 144, candidate_topk: 11, refine: true},
-                {ef: 144, candidate_topk: 12, refine: true},
-                {ef: 144, candidate_topk: 14, refine: true},
-                {ef: 160, candidate_topk: 11, refine: true},
-                {ef: 160, candidate_topk: 12, refine: true},
-                {ef: 160, candidate_topk: 14, refine: true},
-                {ef: 176, candidate_topk: 11, refine: true},
-                {ef: 176, candidate_topk: 12, refine: true},
-                {ef: 176, candidate_topk: 14, refine: true},
-                {ef: 192, candidate_topk: 11, refine: true},
-                {ef: 192, candidate_topk: 12, refine: true},
-                {ef: 192, candidate_topk: 14, refine: true},
-                {ef: 224, candidate_topk: 11, refine: true},
-                {ef: 224, candidate_topk: 12, refine: true},
-                {ef: 224, candidate_topk: 14, refine: true},
-                {ef: 236, candidate_topk: 11, refine: true},
-                {ef: 236, candidate_topk: 12, refine: true},
-                {ef: 236, candidate_topk: 14, refine: true},
-                {ef: 256, candidate_topk: 11, refine: true},
-                {ef: 256, candidate_topk: 12, refine: true},
-                {ef: 256, candidate_topk: 14, refine: true},
-                {ef: 320, candidate_topk: 11, refine: true},
-                {ef: 320, candidate_topk: 12, refine: true},
-                {ef: 320, candidate_topk: 14, refine: true},
-                {ef: 344, candidate_topk: 11, refine: true},
-                {ef: 344, candidate_topk: 12, refine: true},
-                {ef: 344, candidate_topk: 14, refine: true},
-                {ef: 384, candidate_topk: 14, refine: true},
-                {ef: 384, candidate_topk: 16, refine: true},
-                {ef: 432, candidate_topk: 14, refine: true},
-                {ef: 432, candidate_topk: 16, refine: true},
-                {ef: 464, candidate_topk: 14, refine: true},
-                {ef: 464, candidate_topk: 16, refine: true},
-                {ef: 480, candidate_topk: 14, refine: true},
-                {ef: 480, candidate_topk: 16, refine: true},
-                {ef: 512, candidate_topk: 14, refine: true},
-                {ef: 512, candidate_topk: 16, refine: true},
-                {ef: 640, candidate_topk: 14, refine: true},
-                {ef: 640, candidate_topk: 16, refine: true},
-                {ef: 768, candidate_topk: 14, refine: true},
-                {ef: 768, candidate_topk: 16, refine: true},
-                {ef: 896, candidate_topk: 14, refine: true},
-                {ef: 896, candidate_topk: 16, refine: true}
-              ]
-        RecordInt8MidDegreeD68Alpha15:
-          args:
-            index: vamana
-            max_degree: [68]
-            search_list_size: [600]
-            alpha: [1.5]
-            reverse_prune_batch_size: 8
-            use_flat_contiguous_memory: true
-            flat_data_type: fp16
-          query_args: *zvec_record_int8_mid_query_args
-        RecordInt8HighDegree:
-          args:
-            index: vamana
-            max_degree: [72, 80]
-            search_list_size: [400]
-            alpha: [1.3]
-            reverse_prune_batch_size: 8
-            use_flat_contiguous_memory: true
-            flat_data_type: fp16
-          query_args:
-            - [24, 27, 28, 31, 32, 36, 40, 43, 48, 56, 64, 72, 80, 88, 96, 104, 112, 128, 144, 160, 192,
-                {ef: 80, candidate_topk: 11, refine: true},
-                {ef: 80, candidate_topk: 12, refine: true},
-                {ef: 80, candidate_topk: 14, refine: true},
-                {ef: 88, candidate_topk: 11, refine: true},
-                {ef: 88, candidate_topk: 12, refine: true},
-                {ef: 88, candidate_topk: 14, refine: true},
-                {ef: 96, candidate_topk: 11, refine: true},
-                {ef: 96, candidate_topk: 12, refine: true},
-                {ef: 96, candidate_topk: 14, refine: true},
-                {ef: 104, candidate_topk: 11, refine: true},
-                {ef: 104, candidate_topk: 12, refine: true},
-                {ef: 104, candidate_topk: 14, refine: true},
-                {ef: 112, candidate_topk: 11, refine: true},
-                {ef: 112, candidate_topk: 12, refine: true},
-                {ef: 112, candidate_topk: 14, refine: true},
-                {ef: 128, candidate_topk: 11, refine: true},
-                {ef: 128, candidate_topk: 12, refine: true},
-                {ef: 128, candidate_topk: 14, refine: true},
-                {ef: 144, candidate_topk: 11, refine: true},
-                {ef: 144, candidate_topk: 12, refine: true},
-                {ef: 144, candidate_topk: 14, refine: true},
-                {ef: 160, candidate_topk: 11, refine: true},
-                {ef: 160, candidate_topk: 12, refine: true},
-                {ef: 160, candidate_topk: 14, refine: true},
-                {ef: 176, candidate_topk: 11, refine: true},
-                {ef: 176, candidate_topk: 12, refine: true},
-                {ef: 176, candidate_topk: 14, refine: true},
-                {ef: 192, candidate_topk: 11, refine: true},
-                {ef: 192, candidate_topk: 12, refine: true},
-                {ef: 192, candidate_topk: 14, refine: true},
-                {ef: 224, candidate_topk: 11, refine: true},
-                {ef: 224, candidate_topk: 12, refine: true},
-                {ef: 224, candidate_topk: 14, refine: true},
-                {ef: 236, candidate_topk: 11, refine: true},
-                {ef: 236, candidate_topk: 12, refine: true},
-                {ef: 236, candidate_topk: 14, refine: true},
-                {ef: 256, candidate_topk: 11, refine: true},
-                {ef: 256, candidate_topk: 12, refine: true},
-                {ef: 256, candidate_topk: 14, refine: true},
-                {ef: 320, candidate_topk: 11, refine: true},
-                {ef: 320, candidate_topk: 12, refine: true},
-                {ef: 320, candidate_topk: 14, refine: true},
-                {ef: 344, candidate_topk: 11, refine: true},
-                {ef: 344, candidate_topk: 12, refine: true},
-                {ef: 344, candidate_topk: 14, refine: true},
-                {ef: 384, candidate_topk: 14, refine: true},
-                {ef: 384, candidate_topk: 16, refine: true},
-                {ef: 432, candidate_topk: 14, refine: true},
-                {ef: 432, candidate_topk: 16, refine: true},
-                {ef: 464, candidate_topk: 14, refine: true},
-                {ef: 464, candidate_topk: 16, refine: true},
-                {ef: 480, candidate_topk: 14, refine: true},
-                {ef: 480, candidate_topk: 16, refine: true},
-                {ef: 512, candidate_topk: 14, refine: true},
-                {ef: 512, candidate_topk: 16, refine: true},
-                {ef: 640, candidate_topk: 14, refine: true},
-                {ef: 640, candidate_topk: 16, refine: true},
-                {ef: 768, candidate_topk: 14, refine: true},
-                {ef: 768, candidate_topk: 16, refine: true},
-                {ef: 896, candidate_topk: 14, refine: true},
-                {ef: 896, candidate_topk: 16, refine: true}
-              ]
-    - base_args: ['@metric', '@dimension']
-      constructor: ZvecFastQueryDocIds
-      disabled: false
-      docker_tag: ann-benchmarks-zvec
-      module: ann_benchmarks.algorithms.zvec
-      name: zvec-fast_query_doc_ids
-      run_groups: *zvec_auto_prefetch_run_groups
+  - base_args: ['@metric', '@dimension']
+    constructor: ZvecQuery
+    disabled: false
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec-query
+    run_groups: &zvec_run_groups
+      UniformInt8:
+        args:
+          max_degree: [10, 22, 36, 48]
+          search_list_size: [300, 500]
+          alpha: [1.5]
+          quantize: uniform_uint7
+        query_args: [[10, 11, 12, 13, 15, 17]]
+      UniformUint4Refine:
+        args:
+          max_degree: [48, 52, 64]
+          search_list_size: [300, 400]
+          alpha: [1.5]
+          use_flat_contiguous_memory: true
+          flat_data_type: uint8
+          quantize: uniform_uint4
+        query_args:
+          - [
+              {ef_search: 17, scale_factor: 1.5},
+              {ef_search: 17, scale_factor: 1.7},
+              {ef_search: 20, scale_factor: 1.8},
+              {ef_search: 22, scale_factor: 1.9},
+              {ef_search: 24, scale_factor: 2.0},
+              {ef_search: 24, scale_factor: 2.4},
+              {ef_search: 26, scale_factor: 2.2},
+              {ef_search: 26, scale_factor: 2.6},
+              {ef_search: 30, scale_factor: 2.5},
+              {ef_search: 34, scale_factor: 2.8},
+              {ef_search: 38, scale_factor: 3.2},
+              {ef_search: 45, scale_factor: 3.8},
+              {ef_search: 45, scale_factor: 4.0},
+              {ef_search: 52, scale_factor: 4.4},
+              {ef_search: 64, scale_factor: 5.4},
+              {ef_search: 80, scale_factor: 6.8},
+              {ef_search: 104, scale_factor: 8.8},
+              {ef_search: 136, scale_factor: 9.8}
+            ]
+      RecordInt8LowDegree:
+        args:
+          max_degree: [32, 48]
+          search_list_size: [300]
+          alpha: [1.3]
+          use_flat_contiguous_memory: true
+          flat_data_type: fp16
+        query_args:
+          - [
+              24, 27, 28, 31, 32, 36, 40, 43, 48, 56, 64, 72, 80, 88, 96, 104, 112, 128, 144, 160, 192,
+              {ef_search: 80, scale_factor: 1.1},
+              {ef_search: 80, scale_factor: 1.2},
+              {ef_search: 80, scale_factor: 1.4},
+              {ef_search: 88, scale_factor: 1.1},
+              {ef_search: 88, scale_factor: 1.2},
+              {ef_search: 88, scale_factor: 1.4},
+              {ef_search: 96, scale_factor: 1.1},
+              {ef_search: 96, scale_factor: 1.2},
+              {ef_search: 96, scale_factor: 1.4},
+              {ef_search: 104, scale_factor: 1.1},
+              {ef_search: 104, scale_factor: 1.2},
+              {ef_search: 104, scale_factor: 1.4},
+              {ef_search: 112, scale_factor: 1.1},
+              {ef_search: 112, scale_factor: 1.2},
+              {ef_search: 112, scale_factor: 1.4},
+              {ef_search: 128, scale_factor: 1.1},
+              {ef_search: 128, scale_factor: 1.2},
+              {ef_search: 128, scale_factor: 1.4},
+              {ef_search: 144, scale_factor: 1.1},
+              {ef_search: 144, scale_factor: 1.2},
+              {ef_search: 144, scale_factor: 1.4},
+              {ef_search: 160, scale_factor: 1.1},
+              {ef_search: 160, scale_factor: 1.2},
+              {ef_search: 160, scale_factor: 1.4},
+              {ef_search: 176, scale_factor: 1.1},
+              {ef_search: 176, scale_factor: 1.2},
+              {ef_search: 176, scale_factor: 1.4},
+              {ef_search: 192, scale_factor: 1.1},
+              {ef_search: 192, scale_factor: 1.2},
+              {ef_search: 192, scale_factor: 1.4},
+              {ef_search: 224, scale_factor: 1.1},
+              {ef_search: 224, scale_factor: 1.2},
+              {ef_search: 224, scale_factor: 1.4},
+              {ef_search: 236, scale_factor: 1.1},
+              {ef_search: 236, scale_factor: 1.2},
+              {ef_search: 236, scale_factor: 1.4},
+              {ef_search: 256, scale_factor: 1.1},
+              {ef_search: 256, scale_factor: 1.2},
+              {ef_search: 256, scale_factor: 1.4},
+              {ef_search: 320, scale_factor: 1.1},
+              {ef_search: 320, scale_factor: 1.2},
+              {ef_search: 320, scale_factor: 1.4},
+              {ef_search: 344, scale_factor: 1.1},
+              {ef_search: 344, scale_factor: 1.2},
+              {ef_search: 344, scale_factor: 1.4}
+            ]
+      RecordInt8MidDegree:
+        args:
+          max_degree: [48, 68, 72]
+          search_list_size: [600]
+          alpha: [1.3]
+          use_flat_contiguous_memory: true
+          flat_data_type: fp16
+        query_args: &zvec_record_int8_mid_query_args
+          - [
+              24, 27, 28, 31, 32, 36, 40, 43, 48, 56, 64, 72, 80, 88, 96, 104, 112, 128, 144, 160, 192,
+              {ef_search: 80, scale_factor: 1.1},
+              {ef_search: 80, scale_factor: 1.2},
+              {ef_search: 80, scale_factor: 1.4},
+              {ef_search: 88, scale_factor: 1.1},
+              {ef_search: 88, scale_factor: 1.2},
+              {ef_search: 88, scale_factor: 1.4},
+              {ef_search: 96, scale_factor: 1.1},
+              {ef_search: 96, scale_factor: 1.2},
+              {ef_search: 96, scale_factor: 1.4},
+              {ef_search: 104, scale_factor: 1.1},
+              {ef_search: 104, scale_factor: 1.2},
+              {ef_search: 104, scale_factor: 1.4},
+              {ef_search: 112, scale_factor: 1.1},
+              {ef_search: 112, scale_factor: 1.2},
+              {ef_search: 112, scale_factor: 1.4},
+              {ef_search: 128, scale_factor: 1.1},
+              {ef_search: 128, scale_factor: 1.2},
+              {ef_search: 128, scale_factor: 1.4},
+              {ef_search: 144, scale_factor: 1.1},
+              {ef_search: 144, scale_factor: 1.2},
+              {ef_search: 144, scale_factor: 1.4},
+              {ef_search: 160, scale_factor: 1.1},
+              {ef_search: 160, scale_factor: 1.2},
+              {ef_search: 160, scale_factor: 1.4},
+              {ef_search: 176, scale_factor: 1.1},
+              {ef_search: 176, scale_factor: 1.2},
+              {ef_search: 176, scale_factor: 1.4},
+              {ef_search: 192, scale_factor: 1.1},
+              {ef_search: 192, scale_factor: 1.2},
+              {ef_search: 192, scale_factor: 1.4},
+              {ef_search: 224, scale_factor: 1.1},
+              {ef_search: 224, scale_factor: 1.2},
+              {ef_search: 224, scale_factor: 1.4},
+              {ef_search: 236, scale_factor: 1.1},
+              {ef_search: 236, scale_factor: 1.2},
+              {ef_search: 236, scale_factor: 1.4},
+              {ef_search: 256, scale_factor: 1.1},
+              {ef_search: 256, scale_factor: 1.2},
+              {ef_search: 256, scale_factor: 1.4},
+              {ef_search: 320, scale_factor: 1.1},
+              {ef_search: 320, scale_factor: 1.2},
+              {ef_search: 320, scale_factor: 1.4},
+              {ef_search: 344, scale_factor: 1.1},
+              {ef_search: 344, scale_factor: 1.2},
+              {ef_search: 344, scale_factor: 1.4},
+              {ef_search: 384, scale_factor: 1.4},
+              {ef_search: 384, scale_factor: 1.6},
+              {ef_search: 432, scale_factor: 1.4},
+              {ef_search: 432, scale_factor: 1.6},
+              {ef_search: 464, scale_factor: 1.4},
+              {ef_search: 464, scale_factor: 1.6},
+              {ef_search: 480, scale_factor: 1.4},
+              {ef_search: 480, scale_factor: 1.6},
+              {ef_search: 512, scale_factor: 1.4},
+              {ef_search: 512, scale_factor: 1.6},
+              {ef_search: 640, scale_factor: 1.4},
+              {ef_search: 640, scale_factor: 1.6},
+              {ef_search: 768, scale_factor: 1.4},
+              {ef_search: 768, scale_factor: 1.6},
+              {ef_search: 896, scale_factor: 1.4},
+              {ef_search: 896, scale_factor: 1.6}
+            ]
+      RecordInt8MidDegreeD68Alpha15:
+        args:
+          max_degree: [68]
+          search_list_size: [600]
+          alpha: [1.5]
+          use_flat_contiguous_memory: true
+          flat_data_type: fp16
+        query_args: *zvec_record_int8_mid_query_args
+      RecordInt8HighDegree:
+        args:
+          max_degree: [72, 80]
+          search_list_size: [400]
+          alpha: [1.3]
+          use_flat_contiguous_memory: true
+          flat_data_type: fp16
+        query_args:
+          - [
+              24, 27, 28, 31, 32, 36, 40, 43, 48, 56, 64, 72, 80, 88, 96, 104, 112, 128, 144, 160, 192,
+              {ef_search: 80, scale_factor: 1.1},
+              {ef_search: 80, scale_factor: 1.2},
+              {ef_search: 80, scale_factor: 1.4},
+              {ef_search: 88, scale_factor: 1.1},
+              {ef_search: 88, scale_factor: 1.2},
+              {ef_search: 88, scale_factor: 1.4},
+              {ef_search: 96, scale_factor: 1.1},
+              {ef_search: 96, scale_factor: 1.2},
+              {ef_search: 96, scale_factor: 1.4},
+              {ef_search: 104, scale_factor: 1.1},
+              {ef_search: 104, scale_factor: 1.2},
+              {ef_search: 104, scale_factor: 1.4},
+              {ef_search: 112, scale_factor: 1.1},
+              {ef_search: 112, scale_factor: 1.2},
+              {ef_search: 112, scale_factor: 1.4},
+              {ef_search: 128, scale_factor: 1.1},
+              {ef_search: 128, scale_factor: 1.2},
+              {ef_search: 128, scale_factor: 1.4},
+              {ef_search: 144, scale_factor: 1.1},
+              {ef_search: 144, scale_factor: 1.2},
+              {ef_search: 144, scale_factor: 1.4},
+              {ef_search: 160, scale_factor: 1.1},
+              {ef_search: 160, scale_factor: 1.2},
+              {ef_search: 160, scale_factor: 1.4},
+              {ef_search: 176, scale_factor: 1.1},
+              {ef_search: 176, scale_factor: 1.2},
+              {ef_search: 176, scale_factor: 1.4},
+              {ef_search: 192, scale_factor: 1.1},
+              {ef_search: 192, scale_factor: 1.2},
+              {ef_search: 192, scale_factor: 1.4},
+              {ef_search: 224, scale_factor: 1.1},
+              {ef_search: 224, scale_factor: 1.2},
+              {ef_search: 224, scale_factor: 1.4},
+              {ef_search: 236, scale_factor: 1.1},
+              {ef_search: 236, scale_factor: 1.2},
+              {ef_search: 236, scale_factor: 1.4},
+              {ef_search: 256, scale_factor: 1.1},
+              {ef_search: 256, scale_factor: 1.2},
+              {ef_search: 256, scale_factor: 1.4},
+              {ef_search: 320, scale_factor: 1.1},
+              {ef_search: 320, scale_factor: 1.2},
+              {ef_search: 320, scale_factor: 1.4},
+              {ef_search: 344, scale_factor: 1.1},
+              {ef_search: 344, scale_factor: 1.2},
+              {ef_search: 344, scale_factor: 1.4},
+              {ef_search: 384, scale_factor: 1.4},
+              {ef_search: 384, scale_factor: 1.6},
+              {ef_search: 432, scale_factor: 1.4},
+              {ef_search: 432, scale_factor: 1.6},
+              {ef_search: 464, scale_factor: 1.4},
+              {ef_search: 464, scale_factor: 1.6},
+              {ef_search: 480, scale_factor: 1.4},
+              {ef_search: 480, scale_factor: 1.6},
+              {ef_search: 512, scale_factor: 1.4},
+              {ef_search: 512, scale_factor: 1.6},
+              {ef_search: 640, scale_factor: 1.4},
+              {ef_search: 640, scale_factor: 1.6},
+              {ef_search: 768, scale_factor: 1.4},
+              {ef_search: 768, scale_factor: 1.6},
+              {ef_search: 896, scale_factor: 1.4},
+              {ef_search: 896, scale_factor: 1.6}
+            ]
+  - base_args: ['@metric', '@dimension']
+    constructor: ZvecQueryInternalIds
+    disabled: false
+    docker_tag: ann-benchmarks-zvec
+    module: ann_benchmarks.algorithms.zvec
+    name: zvec-query_internal_ids
+    run_groups: *zvec_run_groups

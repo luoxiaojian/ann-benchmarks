@@ -435,8 +435,8 @@ unique_paths = sorted(set(paths))
 
 counts = Counter(definition.algorithm for definition in enabled)
 required_algorithms = {
-    "zvec-fast_query_doc_ids",
-    "zvec-ann_bench_doc_ids",
+    "zvec-query",
+    "zvec-query_internal_ids",
     "descartes(01AI)",
     "qsgngt",
 }
